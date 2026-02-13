@@ -28,6 +28,8 @@ plt.rcParams['legend.frameon'] = False
 
 COLOR_CORRECT = 'tab:blue'
 COLOR_INCORRECT = 'tab:green'
+COLOR_INCORRECT_patch = '#d62728'
+
 COLOR_ZEROSHOT = '#d62728'
 COLOR_AGENTIC = '#ff7f0e'
 
@@ -243,11 +245,11 @@ def plot_panel_e(ax, merged_df, anomalous_df):
     ax.axhline(0.4, color='gray', linestyle='--', linewidth=1.5, alpha=0.6)
     
     ax.add_patch(Rectangle((0.8, 0), 0.25, 0.4, 
-                           facecolor=COLOR_INCORRECT, alpha=0.08, zorder=0))
+                           facecolor=COLOR_INCORRECT_patch, alpha=0.08, zorder=0))
     
     ax.text(0.935, 0.2, 'Anomalous\nregion\n(M≥0.8, R<0.4)', 
             ha='center', va='center', fontsize=13, style='italic', 
-            color=COLOR_INCORRECT, weight='bold')
+            color=COLOR_INCORRECT_patch, weight='bold')
     
     counts = anomalous_df.groupby('Method').size()
     zero = counts.get('zero-shot', 0)
