@@ -374,6 +374,8 @@ def plot_panel_b(fig, gs_cell, merged_df):
 
         ax.set_xlim(0, 1.05)
         ax.set_ylim(0, 1.05)
+        ax.set_xticks([0.0, 0.5, 1.0])
+        ax.set_yticks([0.5, 1.0])
         ax.set_xlabel("Majority fraction (M)", fontsize=11)
         ax.set_ylabel("Robustness (R)", fontsize=11)
         ax.set_title(facet_title, fontsize=11)
