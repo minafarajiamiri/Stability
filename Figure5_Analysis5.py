@@ -22,7 +22,7 @@ from matplotlib.patches import Rectangle
 # =============================================================================
 FILE_CORR = "step2_correlations.csv"
 FILE_CONSENSUS = "step3_consensus_correctness.csv"
-FILE_ANOMALOUS = "step4_anomalous_cases.csv"
+FILE_ANOMALOUS = "step4_anomalous_cases_dataset.csv"
 
 FILE_EXCEL = "analyse2_final_v2.xlsx"
 SHEET_MAJORITY = "majority"
@@ -198,19 +198,20 @@ def plot_panel_a(fig, gs_cell):
     ax_panel = fig.add_subplot(gs_cell)
     ax_panel.axis("off")
     # Put panel label on the container axis so it doesn't mess with subplot titles
-    ax_panel.text(
-        0.0, 1.2, r"$\mathbf{a}$  Metric schematic",
-        transform=ax_panel.transAxes, ha="left", va="bottom", fontsize=14
-    )
-
+    # ax_panel.text(
+    #     0.0, 1.2, r"$\mathbf{a}$  Metric schematic",
+    #     transform=ax_panel.transAxes,  ha="left", va="bottom", fontsize=14
+    # )
+    
     sub_gs = gs_cell.subgridspec(1, 2, wspace=0.35)
     ax_left = fig.add_subplot(sub_gs[0, 0])
     ax_right = fig.add_subplot(sub_gs[0, 1])
 
+    ax_left.set_title(r"$\mathbf{a}$  Metric schematic", loc="left", pad=4, fontsize=14, y=1.1)
     # Example 1: High M, High R
-    answers_1 = ["C"] * 20 + ["A"] * 3 + ["B"] * 1 + ["D"] * 1
+    answers_1 = ["C"] * 1 + ["A"] * 2 + ["B"] * 21 + ["D"] * 1
     counts_1 = pd.Series(answers_1).value_counts().reindex(["A", "B", "C", "D"], fill_value=0)
-    colors_1 = ["#2ca02c" if a == "C" else "#cccccc" for a in counts_1.index]
+    colors_1 = ["#2ca02c" if a == "B" else "#cccccc" for a in counts_1.index]
 
     ax_left.bar(range(4), counts_1.values, color=colors_1, edgecolor="black", linewidth=1.0)
     ax_left.set_xticks(range(4))
@@ -219,32 +220,32 @@ def plot_panel_a(fig, gs_cell):
     ax_left.set_ylim(0, 25)
     ax_left.set_title("Example 1: High M, High R", fontsize=11, pad=8)
     ax_left.text(
-        0.98, 0.88, "M = 0.80", transform=ax_left.transAxes, ha="right", va="center",
+        0.98, 0.88, "M = 0.87", transform=ax_left.transAxes, ha="right", va="center",
         fontsize=10, bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5, edgecolor="none")
     )
     ax_left.text(
-        0.98, 0.74, "R = 0.80", transform=ax_left.transAxes, ha="right", va="center",
+        0.98, 0.74, "R = 0.84", transform=ax_left.transAxes, ha="right", va="center",
         fontsize=10, bbox=dict(boxstyle="round", facecolor="lightgreen", alpha=0.5, edgecolor="none")
     )
     ax_left.set_xlabel("Answer option", fontsize=11)
 
     # Example 2: High M, Low R
-    answers_2 = ["A"] * 22 + ["C"] * 2 + ["B"] * 1
+    answers_2 = ["A"] * 20 + ["C"] * 1 + ["D"] * 4
     counts_2 = pd.Series(answers_2).value_counts().reindex(["A", "B", "C", "D"], fill_value=0)
     colors_2 = ["#2ca02c" if a == "C" else "#cccccc" for a in counts_2.index]
 
     ax_right.bar(range(4), counts_2.values, color=colors_2, edgecolor="black", linewidth=1.0)
     ax_right.set_xticks(range(4))
     ax_right.set_xticklabels(["A", "B", "C", "D"])
-    ax_right.set_ylabel("Number of models")
+    #ax_right.set_ylabel("Number of models")
     ax_right.set_ylim(0, 25)
     ax_right.set_title("Example 2: High M, Low R", fontsize=11, pad=8)
     ax_right.text(
-        0.98, 0.88, "M = 0.88", transform=ax_right.transAxes, ha="right", va="center",
+        0.98, 0.88, "M = 0.83", transform=ax_right.transAxes, ha="right", va="center",
         fontsize=10, bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5, edgecolor="none")
     )
     ax_right.text(
-        0.98, 0.74, "R = 0.08", transform=ax_right.transAxes, ha="right", va="center",
+        0.98, 0.74, "R = 0.04", transform=ax_right.transAxes, ha="right", va="center",
         fontsize=10, bbox=dict(boxstyle="round", facecolor="lightcoral", alpha=0.5, edgecolor="none")
     )
     ax_right.set_xlabel("Answer option", fontsize=11)
@@ -255,10 +256,72 @@ def plot_panel_a(fig, gs_cell):
 # =============================================================================
 # --- PANEL b (container + 2 scatters in one function) ---
 # =============================================================================
+# def plot_panel_b(fig, gs_cell, merged_df):
+#     """
+#     Panel b: Consensus–robustness coupling
+#     Title is attached using ax.set_title()
+#     """
+
+#     # --- Container axis ---
+#     ax_panel = fig.add_subplot(gs_cell)
+#     ax_panel.set_xticks([])
+#     ax_panel.set_yticks([])
+#     ax_panel.set_frame_on(False)
+
+#     ax_panel.set_title(r"$\mathbf{b}$  Consensus–robustness coupling", loc="left", pad=12, fontsize=14, y=1.12)
+
+#     # --- Inner layout ---
+#     sub_gs = gs_cell.subgridspec(1, 2, wspace=0.45)
+#     ax_b1 = fig.add_subplot(sub_gs[0, 0])
+#     ax_b2 = fig.add_subplot(sub_gs[0, 1])
+
+#     def loess_smooth_interp(x, y, n=120):
+#         x = np.asarray(x, dtype=float)
+#         y = np.asarray(y, dtype=float)
+#         m = np.isfinite(x) & np.isfinite(y)
+#         x, y = x[m], y[m]
+#         if x.size < 5:
+#             return x, y
+#         sidx = np.argsort(x)
+#         xs, ys = x[sidx], y[sidx]
+#         xg = np.linspace(xs.min(), xs.max(), n)
+#         yg = np.interp(xg, xs, ys)
+#         return xg, yg
+
+#     def scatter_facet(ax, method, dataset, facet_title):
+#         sub = merged_df[(merged_df["method"] == method) &
+#                         (merged_df["dataset"] == dataset)].copy()
+
+#         ax.scatter(
+#             sub["majority_fraction"],
+#             sub["robustness_score"],
+#             s=45,
+#             alpha=0.6,
+#             color="#555555",
+#             edgecolors="none",
+#         )
+
+#         valid = sub.dropna(subset=["majority_fraction", "robustness_score"])
+#         if len(valid) >= 5:
+#             xs, ys = loess_smooth_interp(
+#                 valid["majority_fraction"].values,
+#                 valid["robustness_score"].values )
+#             ax.plot(xs, ys, color="#1f77b4", lw=2)
+
+#         ax.set_xlim(0, 1.05)
+#         ax.set_ylim(0, 1.05)
+#         ax.set_xlabel("Majority fraction (M)",fontsize=11)
+#         ax.set_ylabel("Robustness (R)",fontsize=11)
+#         ax.set_title(facet_title, fontsize=11)#, style="italic")
+
+#     scatter_facet(ax_b1, "zero-shot", "Benchmark-RadQA", "Benchmark-RadQA | Zero-shot")
+#     scatter_facet(ax_b2, "zero-shot", "Board-RadQA", "Board-RadQA | Zero-shot")
+
+#     return ax_panel
 def plot_panel_b(fig, gs_cell, merged_df):
     """
     Panel b: Consensus–robustness coupling
-    Title is attached using ax.set_title()
+    2x2 grid: top row = zero-shot, bottom row = agentic
     """
 
     # --- Container axis ---
@@ -267,12 +330,14 @@ def plot_panel_b(fig, gs_cell, merged_df):
     ax_panel.set_yticks([])
     ax_panel.set_frame_on(False)
 
-    ax_panel.set_title(r"$\mathbf{b}$  Consensus–robustness coupling", loc="left", pad=12, fontsize=14, y=1.12)
+    ax_panel.set_title(r"$\mathbf{b}$  Consensus–robustness coupling", loc="left", pad=4, fontsize=14, y=1.12)
 
-    # --- Inner layout ---
-    sub_gs = gs_cell.subgridspec(1, 2, wspace=0.45)
+    # --- Inner layout (2 rows x 2 cols) ---
+    sub_gs = gs_cell.subgridspec(2, 2, wspace=0.45, hspace=0.68)
     ax_b1 = fig.add_subplot(sub_gs[0, 0])
     ax_b2 = fig.add_subplot(sub_gs[0, 1])
+    ax_b3 = fig.add_subplot(sub_gs[1, 0])
+    ax_b4 = fig.add_subplot(sub_gs[1, 1])
 
     def loess_smooth_interp(x, y, n=120):
         x = np.asarray(x, dtype=float)
@@ -309,15 +374,16 @@ def plot_panel_b(fig, gs_cell, merged_df):
 
         ax.set_xlim(0, 1.05)
         ax.set_ylim(0, 1.05)
-        ax.set_xlabel("Majority fraction (M)",fontsize=11)
-        ax.set_ylabel("Robustness (R)",fontsize=11)
-        ax.set_title(facet_title, fontsize=11)#, style="italic")
+        ax.set_xlabel("Majority fraction (M)", fontsize=11)
+        ax.set_ylabel("Robustness (R)", fontsize=11)
+        ax.set_title(facet_title, fontsize=11)
 
     scatter_facet(ax_b1, "zero-shot", "Benchmark-RadQA", "Benchmark-RadQA | Zero-shot")
     scatter_facet(ax_b2, "zero-shot", "Board-RadQA", "Board-RadQA | Zero-shot")
+    scatter_facet(ax_b3, "agentic", "Benchmark-RadQA", "Benchmark-RadQA | Agentic")
+    scatter_facet(ax_b4, "agentic", "Board-RadQA", "Board-RadQA | Agentic")
 
     return ax_panel
-
 
 # =============================================================================
 # --- PANEL c (container + 4 violins in one function) ---
@@ -501,15 +567,25 @@ def plot_panel_d_anomalous(ax, merged_df, anomalous_df):
 def create_figure_5(data_dir, output_dir):
     corr_df, consensus_df, anomalous_df, merged_df = load_and_merge_data(data_dir)
 
-    fig = plt.figure(figsize=(12, 10))
+    # fig = plt.figure(figsize=(12, 10))
 
-    # Outer layout: (a | b) on top row, c full row, d full row
+    # # Outer layout: (a | b) on top row, c full row, d full row
+    # outer = fig.add_gridspec(
+    #     nrows=5, ncols=2,
+    #     height_ratios=[1.0, 0.25, 1.3, 0.0, 1.15],
+    #     width_ratios=[1.0, 1.0],
+    #     wspace=0.35, hspace=0.4 )
+
+    # Change figure height from 10 to ~13
+    fig = plt.figure(figsize=(12, 13))
+
+    # Increase first height ratio to give panels a & b more room
     outer = fig.add_gridspec(
         nrows=5, ncols=2,
-        height_ratios=[1.0, 0.25, 1.3, 0.0, 1.15],
+        height_ratios=[1.8, 0.25, 1.3, 0.0, 1.15],
         width_ratios=[1.0, 1.0],
-        wspace=0.35, hspace=0.4 )
-
+        wspace=0.35, hspace=0.3
+    )
     # Panel a and b
     plot_panel_a(fig, outer[0, 0])
     plot_panel_b(fig, outer[0, 1], merged_df)
