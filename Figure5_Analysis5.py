@@ -1,25 +1,12 @@
-# =============================================================================
-# Figure 5: Consensus–Robustness Coupling Analysis
-# =============================================================================
-# Requirements: pandas, numpy, matplotlib, seaborn, openpyxl
-#
-# Put all input files in the SAME folder as this script (recommended).
-# Output will be saved to the same folder unless OUTPUT_DIR is changed.
-# =============================================================================
-
 import os
 import sys
-
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns  # kept for consistency across your figure scripts
+import seaborn as sns  
 from matplotlib.patches import Rectangle
 
 
-# =============================================================================
-# --- USER CONFIGURATION ---
-# =============================================================================
 FILE_CORR = "step2_correlations.csv"
 FILE_CONSENSUS = "step3_consensus_correctness.csv"
 FILE_ANOMALOUS = "step4_anomalous_cases.csv"
@@ -31,7 +18,7 @@ FILE_ROBUST_RADIO = "robustness_scores_Radiorag_dataset.csv"
 FILE_ROBUST_TUM = "robustness_scores_internal_TUM_dataset.csv"
 
 OUTPUT_NAME = "Figure5_Analysis5.png"
-OUTPUT_DIR = None  # None -> script folder
+OUTPUT_DIR = None  
 
 RNG_SEED = 42
 
@@ -40,10 +27,6 @@ THRESH_R_LOW = 0.40
 
 COLOR_INCORRECT_REGION = "#d62728"
 
-
-# =============================================================================
-# --- STYLE SETUP ---
-# =============================================================================
 plt.rcParams["font.family"] = "sans-serif"
 plt.rcParams["font.sans-serif"] = ["Arial", "DejaVu Sans"]
 plt.rcParams["axes.linewidth"] = 1.0
@@ -55,9 +38,6 @@ plt.rcParams["legend.frameon"] = False
 plt.rcParams["axes.grid"] = False
 
 
-# =============================================================================
-# --- IO HELPERS ---
-# =============================================================================
 def load_csv_checked(path):
     if not os.path.exists(path):
         raise FileNotFoundError(f"File not found: {path}")
@@ -89,14 +69,7 @@ def standardize_dataset_names(df):
     }
     return df.replace(mapping)
 
-
-# =============================================================================
-# --- PLOT HELPERS ---
-# =============================================================================
 def loess_smooth_interp(x, y, n=120):
-    """
-    Lightweight smoothing (sorted linear interpolation; stable, no extra deps).
-    """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
 
@@ -124,9 +97,7 @@ def add_jitter_points(ax, x_pos, y_vals, rng, jitter=0.06, size=12, alpha=0.55,
     ax.scatter(x, y, s=size, alpha=alpha, c=c, edgecolors=ec, linewidths=lw, zorder=zorder)
 
 
-# =============================================================================
-# --- LOAD & MERGE DATA ---
-# =============================================================================
+
 def load_and_merge_data(data_dir):
     print(f"Loading data from: {os.path.abspath(data_dir)}")
 
@@ -142,7 +113,6 @@ def load_and_merge_data(data_dir):
     robust_tum["dataset"] = "Board-RadQA"
     robust_df = pd.concat([robust_radio, robust_tum], ignore_index=True)
 
-    # Standardize names (defensive)
     majority_df = standardize_dataset_names(majority_df)
     robust_df = standardize_dataset_names(robust_df)
 
@@ -178,7 +148,6 @@ def load_and_merge_data(data_dir):
         how="left",
     )
 
-    # Numeric coercion
     if "majority_fraction" in merged_df.columns:
         merged_df["majority_fraction"] = pd.to_numeric(merged_df["majority_fraction"], errors="coerce")
     merged_df["robustness_score"] = pd.to_numeric(merged_df["robustness_score"], errors="coerce")
@@ -186,18 +155,10 @@ def load_and_merge_data(data_dir):
     print("✓ Data loaded successfully\n")
     return corr_df, consensus_df, anomalous_df, merged_df
 
-
-# =============================================================================
-# --- PANEL a (container + diagram in one function) ---
-# =============================================================================
 def plot_panel_a(fig, gs_cell):
-    """
-    Panel a: Metric schematic
-    Container axis holds the title; two inner axes show example bar charts.
-    """
     ax_panel = fig.add_subplot(gs_cell)
     ax_panel.axis("off")
-    # Put panel label on the container axis so it doesn't mess with subplot titles
+
     ax_panel.text(
         0.0, 1.2, r"$\mathbf{a}$  Metric schematic",
         transform=ax_panel.transAxes, ha="left", va="bottom", fontsize=14
@@ -207,7 +168,6 @@ def plot_panel_a(fig, gs_cell):
     ax_left = fig.add_subplot(sub_gs[0, 0])
     ax_right = fig.add_subplot(sub_gs[0, 1])
 
-    # Example 1: High M, High R
     answers_1 = ["C"] * 20 + ["A"] * 3 + ["B"] * 1 + ["D"] * 1
     counts_1 = pd.Series(answers_1).value_counts().reindex(["A", "B", "C", "D"], fill_value=0)
     colors_1 = ["#2ca02c" if a == "C" else "#cccccc" for a in counts_1.index]
@@ -228,7 +188,6 @@ def plot_panel_a(fig, gs_cell):
     )
     ax_left.set_xlabel("Answer option", fontsize=11)
 
-    # Example 2: High M, Low R
     answers_2 = ["A"] * 22 + ["C"] * 2 + ["B"] * 1
     counts_2 = pd.Series(answers_2).value_counts().reindex(["A", "B", "C", "D"], fill_value=0)
     colors_2 = ["#2ca02c" if a == "C" else "#cccccc" for a in counts_2.index]
@@ -248,20 +207,11 @@ def plot_panel_a(fig, gs_cell):
         fontsize=10, bbox=dict(boxstyle="round", facecolor="lightcoral", alpha=0.5, edgecolor="none")
     )
     ax_right.set_xlabel("Answer option", fontsize=11)
-    #ax_left.set_title(r"$\mathbf{a}$  Metric schematic", loc="left", pad=12, fontsize=14, y=1.1)
     return ax_panel
 
 
-# =============================================================================
-# --- PANEL b (container + 2 scatters in one function) ---
-# =============================================================================
 def plot_panel_b(fig, gs_cell, merged_df):
-    """
-    Panel b: Consensus–robustness coupling
-    Title is attached using ax.set_title()
-    """
 
-    # --- Container axis ---
     ax_panel = fig.add_subplot(gs_cell)
     ax_panel.set_xticks([])
     ax_panel.set_yticks([])
@@ -269,7 +219,6 @@ def plot_panel_b(fig, gs_cell, merged_df):
 
     ax_panel.set_title(r"$\mathbf{b}$  Consensus–robustness coupling", loc="left", pad=12, fontsize=14, y=1.12)
 
-    # --- Inner layout ---
     sub_gs = gs_cell.subgridspec(1, 2, wspace=0.45)
     ax_b1 = fig.add_subplot(sub_gs[0, 0])
     ax_b2 = fig.add_subplot(sub_gs[0, 1])
@@ -318,19 +267,7 @@ def plot_panel_b(fig, gs_cell, merged_df):
 
     return ax_panel
 
-
-# =============================================================================
-# --- PANEL c (container + 4 violins in one function) ---
-# =============================================================================
 def plot_panel_c(fig, gs_cell, merged_df, rng_seed=42):
-    """
-    Panel c: Consensus by majority correctness
-    One function creates:
-      - 1 container axis (title via ax.set_title)
-      - 4 inner violin facets (1 x 4)
-    """
-
-    # --- Container axis ---
     ax_panel = fig.add_subplot(gs_cell)
     ax_panel.set_xticks([])
     ax_panel.set_yticks([])
@@ -338,7 +275,6 @@ def plot_panel_c(fig, gs_cell, merged_df, rng_seed=42):
 
     ax_panel.set_title(r"$\mathbf{c}$  Consensus by majority correctness", loc="left", pad=12, fontsize=14, y=1.1)
 
-    # --- Inner layout (1 row x 4 cols) ---
     sub_gs = gs_cell.subgridspec(1, 4, wspace=0.45)
     ax_c1 = fig.add_subplot(sub_gs[0, 0])
     ax_c2 = fig.add_subplot(sub_gs[0, 1])
@@ -368,32 +304,27 @@ def plot_panel_c(fig, gs_cell, merged_df, rng_seed=42):
         correct = sub.loc[sub["majority_correct"] == 1, "majority_fraction"].astype(float).dropna().to_numpy()
         incorrect = sub.loc[sub["majority_correct"] == 0, "majority_fraction"].astype(float).dropna().to_numpy()
 
-        # Jittered points
         add_jitter_points(ax, 1, correct, c="tab:orange")
         add_jitter_points(ax, 2, incorrect, c="tab:red")
 
         data = [correct, incorrect]
 
-        # Violin plot
         vp = ax.violinplot(
             data, positions=[1, 2], widths=0.75,
             showmeans=False, showmedians=True, showextrema=True
         )
 
-        # Violin bodies
         for body, col in zip(vp["bodies"], ["tab:blue", "tab:green"]):
             body.set_facecolor(col)
             body.set_edgecolor("none")
             body.set_alpha(0.22)
             body.set_zorder(1)
 
-        # Violin lines
         for part in ["cmedians", "cmins", "cmaxes", "cbars"]:
             vp[part].set_color("grey")
             vp[part].set_linewidth(1.0)
             vp[part].set_zorder(4)
 
-        # Box overlay
         ax.boxplot(
             data, positions=[1, 2], widths=0.25, showfliers=False, patch_artist=True,
             boxprops=dict(facecolor="none", linewidth=1.0),
@@ -408,7 +339,6 @@ def plot_panel_c(fig, gs_cell, merged_df, rng_seed=42):
         ax.set_ylim(0, 1.05)
         ax.set_title(facet_title, fontsize=11)#, style="italic")
 
-    # --- 4 facets ---
     violin_facet(ax_c1, "zero-shot", "Benchmark-RadQA", "Benchmark-RadQA | Zero-shot")
     violin_facet(ax_c2, "zero-shot", "Board-RadQA", "Board-RadQA | Zero-shot")
     violin_facet(ax_c3, "agentic", "Benchmark-RadQA", "Benchmark-RadQA | Agentic")
@@ -417,9 +347,6 @@ def plot_panel_c(fig, gs_cell, merged_df, rng_seed=42):
     return ax_panel
 
 
-# =============================================================================
-# --- PANEL d (full-width anomalous plot) ---
-# =============================================================================
 def plot_panel_d_anomalous(ax, merged_df, anomalous_df):
     df = merged_df.copy()
     df = standardize_dataset_names(df)
@@ -494,44 +421,32 @@ def plot_panel_d_anomalous(ax, merged_df, anomalous_df):
     ax.legend(loc="lower left", fontsize=11, frameon=True, edgecolor="gray")
     ax.set_title(r"$\mathbf{d}$  Coordinated but incorrect convergence", loc="left", fontsize=14, pad=12)
 
-
-# =============================================================================
-# --- MAIN FIGURE BUILDER ---
-# =============================================================================
 def create_figure_5(data_dir, output_dir):
     corr_df, consensus_df, anomalous_df, merged_df = load_and_merge_data(data_dir)
 
     fig = plt.figure(figsize=(12, 10))
 
-    # Outer layout: (a | b) on top row, c full row, d full row
     outer = fig.add_gridspec(
         nrows=5, ncols=2,
         height_ratios=[1.0, 0.25, 1.3, 0.0, 1.15],
         width_ratios=[1.0, 1.0],
         wspace=0.35, hspace=0.4 )
 
-    # Panel a and b
     plot_panel_a(fig, outer[0, 0])
     plot_panel_b(fig, outer[0, 1], merged_df)
 
-    # Panel c (full width)
     plot_panel_c(fig, outer[2, :], merged_df)
 
-    # Panel d (full width)
     ax_d = fig.add_subplot(outer[4, :])
     plot_panel_d_anomalous(ax_d, merged_df, anomalous_df)
     
 
-    # Save
     out_path = os.path.join(output_dir, OUTPUT_NAME)
     fig.savefig(out_path, dpi=600, bbox_inches="tight", pad_inches=0.02, facecolor="white")
     print(f"✓ Saved: {os.path.abspath(out_path)}")
 
     return fig, out_path
 
-# =============================================================================
-# --- RUN ---
-# =============================================================================
 if __name__ == "__main__":
     print("\n" + "=" * 60)
     print("Figure 5: Consensus–Robustness Coupling")
@@ -552,4 +467,5 @@ if __name__ == "__main__":
         print(f"\n✗ Error: {e}")
         import traceback
         traceback.print_exc()
+
         sys.exit(1)
