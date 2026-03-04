@@ -6,32 +6,26 @@ import numpy as np
 import sys
 import os
 
-# ==========================================
-# --- USER CONFIGURATION SECTION ---
-# ==========================================
 YOUR_EXCEL_FILE = 'analyse1_final_v3.xlsx'
 YOUR_SHEET_NAME = 'analysis1_input' 
 
 COL_DATASET_NAME = 'dataset'       
 COL_H_ZEROSHOT = 'H_zeroshot'      
 COL_H_AGENTIC = 'H_agentic'        
-# ==========================================
-# --- Style Setup ---
+
 plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['font.sans-serif'] = ['Arial', 'DejaVu Sans']
 plt.rcParams['axes.linewidth'] = 1.0
-# Increase font sizes slightly for better readability in a dense figure
 plt.rcParams['axes.labelsize'] = 12
 plt.rcParams['xtick.labelsize'] = 11
 plt.rcParams['ytick.labelsize'] = 11
 plt.rcParams['legend.fontsize'] = 12
 plt.rcParams['legend.frameon'] = False
 
-# Global palettes
+
 PALETTE_DATASETS = {'Benchmark-RadQA': '#1f77b4', 'Board-RadQA': '#2ca02c'} 
 PALETTE_CATS = {'Improved': '#2ca02c', 'Unchanged': '#bbbbbb', 'Worsened': '#d62728'}
 
-# --- HELPER FUNCTIONS ---
 def tukey_outliers(values):
     v = np.asarray(values, dtype=float)
     v = v[~np.isnan(v)]
@@ -64,9 +58,7 @@ def load_and_prep_data(filepath, sheetname):
     df['change_category'] = np.select(conditions, ['Improved', 'Worsened'], default='Unchanged')
     return df
 
-# ==============================================================================
-# --- CORE PLOTTING LOGIC FOR THE CUSTOM VIOLIN STYLE ---
-# ==============================================================================
+
 def draw_styled_violin_pair(ax, data_z, data_a):
     """Helper function to draw the specific style on a given axis."""
     data = [data_z, data_a]
@@ -109,9 +101,6 @@ def draw_styled_violin_pair(ax, data_z, data_a):
     ax.set_xticklabels(["Zero-shot", "Agentic"])
 
 
-# ==============================================================================
-# --- PANEL PLOTTING FUNCTIONS (New Order) ---
-# ==============================================================================
 def plot_panel_a_faceted(ax_container, df, label):
     """New Panel a: Wide, faceted entropy distribution with custom style."""
     gs_inner = gridspec.GridSpecFromSubplotSpec(1, 3, subplot_spec=ax_container, wspace=0.25)
@@ -146,7 +135,7 @@ def plot_panel_b_scatter(ax, df, label):
     
     ax.fill_between(x_fill, 0, x_fill, color=PALETTE_CATS['Improved'], 
                     alpha=0.1, zorder=0, edgecolor='none')
-    # ------------------------------------
+
     ax.plot([0, max_val], [0, max_val], ls='-', c='black', lw=1, zorder=1)
     
     sns.scatterplot(data=df, x='H_zeroshot', y='H_agentic', hue='dataset', style='dataset',
@@ -183,7 +172,6 @@ def plot_panel_c_hist(ax, df, label):
     
     ax.axvspan(0, limit, ymin=0, ymax=1, color=PALETTE_CATS['Worsened'], 
                alpha=0.1, zorder=0, edgecolor='none')
-    # ------------------------------------
     
     y_txt = ymax * 0.7
     ax.text(-limit*0.5, y_txt, 'Improved', ha='center', 
@@ -237,9 +225,7 @@ def plot_panel_d_bars(ax, df, label):
         
     ax.set_title(f'$\mathbf{{{label}}}$  Proportions of change categories', loc='left', fontsize=14, y=1.08) #fontweight='bold',
     
-# ==============================================================================
-# --- MAIN ---
-# ==============================================================================
+
 if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
     excel_path = os.path.join(script_dir, YOUR_EXCEL_FILE)
@@ -269,3 +255,4 @@ if __name__ == "__main__":
     print(f"Figure saved to {output_filename}")
 
     plt.show()
+
