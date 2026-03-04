@@ -16,8 +16,6 @@ COL_DATASET_NAME = 'dataset'
 COL_H_ZEROSHOT = 'H_zeroshot'      
 COL_H_AGENTIC = 'H_agentic'        
 # ==========================================
-
-
 # --- Style Setup ---
 plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['font.sans-serif'] = ['Arial', 'DejaVu Sans']
@@ -114,34 +112,25 @@ def draw_styled_violin_pair(ax, data_z, data_a):
 # ==============================================================================
 # --- PANEL PLOTTING FUNCTIONS (New Order) ---
 # ==============================================================================
-
 def plot_panel_a_faceted(ax_container, df, label):
     """New Panel a: Wide, faceted entropy distribution with custom style."""
-    # Create 3 sub-axes within the container axis
-    # Adjusted wspace as requested previously
     gs_inner = gridspec.GridSpecFromSubplotSpec(1, 3, subplot_spec=ax_container, wspace=0.25)
     axes = [plt.Subplot(ax_container.figure, gs_inner[i]) for i in range(3)]
     for ax in axes: ax_container.figure.add_subplot(ax)
     
     groups = ['Pooled', 'Benchmark-RadQA', 'Board-RadQA']
 
-    # Set the main panel title on the container axis once
-    # y=1.08 shifts it up slightly to make room for the facet labels
     ax_container.set_title(f'$\mathbf{{{label}}}$  Entropy distribution by method', 
                            loc='left',  fontsize=14, y=1.08) #fontweight='bold',
     
     for i, (ax, group) in enumerate(zip(axes, groups)):
         d_sub = df if group == 'Pooled' else df[df['dataset'] == group]
         
-        # Call the helper to draw the style
         draw_styled_violin_pair(ax, d_sub['H_zeroshot'], d_sub['H_agentic'])
         
-        # --- FIX: Manually place facet labels instead of using set_title ---
-        # (0.5, 1.02) in axes coordinates places text centered just above the plot
         ax.text(0.5, 1.02, group, transform=ax.transAxes, 
                 ha='center', va='bottom', fontsize=12)#, fontweight='bold')
         
-        # Always set the y-label for every facet
         ax.set_ylabel("Entropy", fontsize=12)
 
     ax_container.axis('off') # Hide the container frame lines
@@ -149,35 +138,23 @@ def plot_panel_a_faceted(ax_container, df, label):
 
 def plot_panel_b_scatter(ax, df, label):
     """New Panel b: Paired scatter plot with background shading."""
-    # Determine axis limits
     max_val = max(df['H_zeroshot'].max(), df['H_agentic'].max()) * 1.1
     
-    # --- NEW: Add background shading ---
-    # Create x-values for filling
     x_fill = np.linspace(0, max_val, 100)
-    
-    # Shading for Worsened (above y=x line)
-    # Fill between y=x and the top of the plot (y=max_val)
     ax.fill_between(x_fill, x_fill, max_val, color=PALETTE_CATS['Worsened'], 
                     alpha=0.1, zorder=0, edgecolor='none')
     
-    # Shading for Improved (below y=x line)
-    # Fill between the bottom (y=0) and y=x
     ax.fill_between(x_fill, 0, x_fill, color=PALETTE_CATS['Improved'], 
                     alpha=0.1, zorder=0, edgecolor='none')
     # ------------------------------------
-
-    # Plot identity line (make it slightly darker now to stand out against shading)
     ax.plot([0, max_val], [0, max_val], ls='-', c='black', lw=1, zorder=1)
     
-    # Plot Scatter points (higher zorder to sit on top)
     sns.scatterplot(data=df, x='H_zeroshot', y='H_agentic', hue='dataset', style='dataset',
                     palette=PALETTE_DATASETS, markers=['o', '^'], alpha=0.7, s=50, ax=ax, zorder=2)
     
     ax.set_xlim(0, max_val); ax.set_ylim(0, max_val); ax.set_aspect('equal')
     ax.set_xlabel('Zero-shot Entropy'); ax.set_ylabel('Agentic entropy')
     
-    # Keep text, make it bold to pop against background
     ax.text(max_val*0.75, max_val*0.25, 'Improved\nStability', ha='center', va='center', 
             color=PALETTE_CATS['Improved'], fontweight='bold', zorder=3)
     ax.text(max_val*0.25, max_val*0.75, 'Worsened\nStability', ha='center', va='center', 
@@ -188,34 +165,26 @@ def plot_panel_b_scatter(ax, df, label):
 
 def plot_panel_c_hist(ax, df, label):
     """New Panel c: Histogram of change with background shading."""
-    # Plot the histogram (higher zorder to sit on top of shading)
     sns.histplot(data=df, x='delta_H', hue='dataset', palette=PALETTE_DATASETS,
                  ax=ax, element="step", stat="density", common_norm=False, 
                  alpha=0.4, lw=1.5, zorder=2)
     
-    # Vertical line at zero
     ax.axvline(0, color='black', ls='-', lw=1, zorder=3)
     
     ax.set_xlabel('ΔH (Agentic − Zero-shot)')
     ax.set_ylabel('Density')
     
-    # Determine x-limits
     limit = max(abs(df['delta_H'].min()), abs(df['delta_H'].max())) * 1.1 if len(df) > 0 else 0.1
     ax.set_xlim(-limit, limit)
-    # Get current y-limits to ensure shading covers full height
     ymin, ymax = ax.get_ylim()
 
-    # --- NEW: Add Background Shading ---
-    # Shade Improved region (x from -limit to 0)
     ax.axvspan(-limit, 0, ymin=0, ymax=1, color=PALETTE_CATS['Improved'], 
                alpha=0.1, zorder=0, edgecolor='none')
     
-    # Shade Worsened region (x from 0 to limit)
     ax.axvspan(0, limit, ymin=0, ymax=1, color=PALETTE_CATS['Worsened'], 
                alpha=0.1, zorder=0, edgecolor='none')
     # ------------------------------------
     
-    # Add Text and Arrows (make text bold to pop against shading)
     y_txt = ymax * 0.7
     ax.text(-limit*0.5, y_txt, 'Improved', ha='center', 
             color=PALETTE_CATS['Improved'], fontweight='bold', zorder=4)
@@ -247,17 +216,14 @@ def plot_panel_d_bars(ax, df, label):
 
     df_props = pd.DataFrame(props_data, index=groups)
     
-    # Plot stacked bars
     df_props.plot(kind='bar', stacked=True, ax=ax, color=[PALETTE_CATS[c] for c in df_props.columns], 
                   width=0.6, edgecolor='white')
 
     ax.set_ylabel('Proportion of questions (%)'); ax.set_ylim(0, 100)
     plt.setp(ax.get_xticklabels(), rotation=0)
 
-    # Manually set x-limits to add padding on the right for the legend
     ax.set_xlim(left=-0.5, right=3.0)
     
-    # Add total count (N) labels above each bar
     for i, count in enumerate(group_counts):
         ax.text(i, 102, f'N={count}', ha='center', va='bottom', 
                 fontsize=10, fontweight='bold', color='black')
@@ -269,7 +235,6 @@ def plot_panel_d_bars(ax, df, label):
         labels_bar = [f'{v.get_height():.0f}%' if v.get_height() > 3 else '' for v in container]
         ax.bar_label(container, labels=labels_bar, label_type='center', color='white', fontsize=11, fontweight='bold')
         
-    # --- CHANGE HERE: Added y=1.08 to move title up ---
     ax.set_title(f'$\mathbf{{{label}}}$  Proportions of change categories', loc='left', fontsize=14, y=1.08) #fontweight='bold',
     
 # ==============================================================================
@@ -281,34 +246,26 @@ if __name__ == "__main__":
     print(f"Loading data from {excel_path}...")
     df = load_and_prep_data(excel_path, YOUR_SHEET_NAME)
 
-    # --- NEW LAYOUT DEFINITION ---
-    # Taller figure for 3 rows
     fig = plt.figure(figsize=(12, 14)) 
-    # 3 rows, 2 columns. 
-    # Row 1 & 3 will span both columns. Row 2 will be split.
-    #gs = gridspec.GridSpec(3, 2, height_ratios=[1, 1, 0.8], hspace=0.4, wspace=0.05)
     gs = gridspec.GridSpec(3, 2, 
                            height_ratios=[1, 1, 0.8], 
-                           width_ratios=[0.7, 1.3], # <--- Add this line
+                           width_ratios=[0.7, 1.3], 
                            hspace=0.4, 
                            wspace=0.2)
 
-    # Assign axes based on new layout
     ax_a_container = fig.add_subplot(gs[0, :]) # Row 1, full width
     ax_b = fig.add_subplot(gs[1, 0])           # Row 2, left
     ax_c = fig.add_subplot(gs[1, 1])           # Row 2, right
     ax_d = fig.add_subplot(gs[2, :])           # Row 3, full width
 
     print("Generating plots...")
-    # Call with new order and labels
     plot_panel_a_faceted(ax_a_container, df, label='a')
     plot_panel_b_scatter(ax_b, df, label='b')
     plot_panel_c_hist(ax_c, df, label='c')
     plot_panel_d_bars(ax_d, df, label='d')
 
-    #fig.suptitle('Figure 2. Agentic reasoning changes inter-model decision stability', fontsize=16, fontweight='bold', y=0.99)
-
     output_filename = os.path.join(script_dir, 'Figure2_Analysis1.png')
     plt.savefig(output_filename, dpi=300, bbox_inches='tight')
     print(f"Figure saved to {output_filename}")
+
     plt.show()
