@@ -1,8 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Figure 6: Comprehensive clinical severity assessment of incorrect model decisions
-"""
-
 import os
 import sys
 import numpy as np
@@ -552,3 +547,4 @@ if __name__ == "__main__":
     print(f"κ: {binary['kappa']:.3f} | 95% CI: [{binary['ci_low']:.3f}, {binary['ci_high']:.3f}]")
 
     plot_combined_analysis6(df_full, kappa_results)
+
