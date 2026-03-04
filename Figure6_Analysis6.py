@@ -7,16 +7,12 @@ import matplotlib.gridspec as gridspec
 import seaborn as sns
 
 
-# ==========================================
-# --- USER CONFIGURATION ---
-# ==========================================
 YOUR_EXCEL_FILE = "analyse6_final_v3.xlsx"
 YOUR_SHEET_NAME = "Combine"
 
 BAR_W = 0.25
 BAR_SPACING = 0.2
 
-# --- Style Setup ---
 plt.rcParams["font.family"] = "sans-serif"
 plt.rcParams["font.sans-serif"] = ["Arial", "DejaVu Sans"]
 plt.rcParams["axes.linewidth"] = 1.0
@@ -25,7 +21,6 @@ plt.rcParams["xtick.labelsize"] = 11
 plt.rcParams["ytick.labelsize"] = 11
 plt.rcParams["legend.frameon"] = False
 
-# --- Color Palettes ---
 PALETTE_SEVERITY = {"Low": "#2ca02c", "Moderate": "#4c72b0", "High": "#d62728"}
 PALETTE_AGREEMENT = {
     "Unanimous (3/3)": "#08519c",
@@ -34,9 +29,7 @@ PALETTE_AGREEMENT = {
 }
 COLOR_OBSERVED = "#1f77b4"
 COLOR_EXPECTED = "#aec7e8"
-# ==============================================================================
-# --- HELPER FUNCTIONS (plots) ---
-# ==============================================================================
+
 def tukey_outliers(values):
     v = np.asarray(values, dtype=float)
     v = v[~np.isnan(v)]
@@ -103,9 +96,7 @@ def draw_styled_violin_single(ax, data, pt_color, vn_color):
         )
 
     ax.set_xticks([])
-# ==============================================================================
-# --- Fleiss' kappa + CI + sensitivity ---
-# ==============================================================================
+
 def calculate_fleiss_kappa_from_codes(df_codes, code_cols, k):
     
     if df_codes.empty or not all(c in df_codes.columns for c in code_cols):
@@ -218,9 +209,6 @@ def kappa_with_ci_and_sensitivity(df_full, n_boot=2000, seed=42):
     }
 
 
-# ==============================================================================
-# --- DATA LOADING & PREPARATION ---
-# ==============================================================================
 def _derive_sev_final_from_counts(df):
     needed = ["n_low", "n_moderate", "n_high", "max_count"]
     if not all(c in df.columns for c in needed):
@@ -292,9 +280,6 @@ def calculate_entropy_and_agreement(df_stats):
     return entropy_df.merge(agreement_df, on="question_id", how="left")
 
 
-# ==============================================================================
-# --- PLOTTING ---
-# ==============================================================================
 def plot_combined_analysis6(df_full, kappa_results):
     three = kappa_results["three_class"]
     binary = kappa_results["binary"]
@@ -321,7 +306,7 @@ def plot_combined_analysis6(df_full, kappa_results):
     fig = plt.figure(figsize=(11, 12))
     gs = gridspec.GridSpec(3, 6, height_ratios=[1, 1, 1], hspace=0.3, wspace=0.85)
 
-    # ================= Panel a: agreement levels =================
+    #Panel a: agreement levels 
     ax_a = fig.add_subplot(gs[0, 0:2])
     if "agreement_label" in df_full.columns and not df_full.empty:
         counts_a = df_full["agreement_label"].value_counts(normalize=True)
@@ -342,13 +327,12 @@ def plot_combined_analysis6(df_full, kappa_results):
         ax_a.set_xticks(x_pos)
         ax_a.set_xticklabels([l.replace(" ", "\n") for l in order_a])
 
-        # Optional: quick sanity print (won't affect plot)
-        # print("Panel A %:", counts_a.to_dict())
+        
 
     ax_a.set_ylim(0, 80)
     ax_a.set_ylabel("Proportion (%)")
     ax_a.set_title(r"$\mathbf{a}$   Inter-rater agreement levels", loc="left", fontsize=14)
-    # ================= Panel b: observed vs expected + kappa CI + sensitivity =================
+    # Panel b: observed vs expected + kappa CI + sensitivity 
     ax_b = fig.add_subplot(gs[0, 2:4])
 
     bars_labels = [r"Observed ($\bar{P}$)", r"Expected ($\bar{P}_e$)"]
@@ -370,13 +354,12 @@ def plot_combined_analysis6(df_full, kappa_results):
         ax_b.text(x[i], (v + 0.01) if np.isfinite(v) else 0.02, f"{v:.2f}" if np.isfinite(v) else "NA",
                   ha="center", fontsize=12)
 
-    # Kappa + CI text
     kappa_txt = f"{kappa:.2f}" if np.isfinite(kappa) else "NA"
     ci_txt = f"[{ci_low:.2f}, {ci_high:.2f}]" if np.isfinite(ci_low) and np.isfinite(ci_high) else "[NA, NA]"
     ax_b.text(0.5, 0.93, f"Fleiss' $\\kappa$ = {kappa_txt} (95% CI {ci_txt})",
               transform=ax_b.transAxes, ha="center", fontsize=11)
 
-    # Sensitivity (binary) text
+    # Sensitivity (binary) 
     k2 = binary["kappa"]
     lo2 = binary["ci_low"]
     hi2 = binary["ci_high"]
@@ -384,7 +367,7 @@ def plot_combined_analysis6(df_full, kappa_results):
     ci2_txt = f"[{lo2:.3f}, {hi2:.3f}]" if np.isfinite(lo2) and np.isfinite(hi2) else "[NA, NA]"
 
     ax_b.set_title(r"$\mathbf{b}$   Observed vs. expected agreement", loc="left", fontsize=14)
-    # ================= Panel c: overall severity composition =================
+    #Panel c: overall severity composition 
     ax_c = fig.add_subplot(gs[0, 4:6])
     valid_cats = ["Low", "Moderate", "High"]
 
@@ -411,7 +394,7 @@ def plot_combined_analysis6(df_full, kappa_results):
     ax_c.set_ylim(0, 70)
     ax_c.set_ylabel("Proportion of incorrect options (%)")
     ax_c.set_title(r"$\mathbf{c}$   Overall severity composition", loc="left", fontsize=14)
-    # ================= Panel d: severity profile by dataset =================
+    #Panel d: severity profile by dataset 
     ax_d = fig.add_subplot(gs[1, :])
     if "dataset" in df_full.columns and "Sev_final" in df_full.columns and not df_full.empty:
         df_plot = df_full.copy()
@@ -484,7 +467,7 @@ def plot_combined_analysis6(df_full, kappa_results):
     ax_d.set_xlabel("")
     ax_d.set_ylim(0, 70)
     ax_d.set_title(r"$\mathbf{d}$   Severity profile by dataset", loc="left", fontsize=14)
-    # ================= Panel e: per-question agreement distribution =================
+    #Panel e: per-question agreement distribution 
     ax_e = fig.add_subplot(gs[2, 0:2])
     data_e = question_stats_df["mean_agreement"] if "mean_agreement" in question_stats_df.columns else pd.Series(dtype=float)
 
@@ -498,7 +481,7 @@ def plot_combined_analysis6(df_full, kappa_results):
     if np.isfinite(P_e):
         ax_e.legend(fontsize=12)
     ax_e.set_title(r"$\mathbf{e}$   Per-question agreement distribution", loc="left", fontsize=14)
-    # ================= Panel f: per-question severity entropy =================
+    #Panel f: per-question severity entropy 
     ax_f = fig.add_subplot(gs[2, 2:6])
     if not question_stats_df.empty and "severity_entropy" in question_stats_df.columns:
         sns.histplot(
@@ -521,9 +504,8 @@ def plot_combined_analysis6(df_full, kappa_results):
     plt.savefig(output_filename, dpi=300, bbox_inches="tight")
     print(f"Figure saved to {output_filename}")
     plt.show()
-# ==============================================================================
-# --- MAIN ---
-# ==============================================================================
+
+
 if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
     excel_path = os.path.join(script_dir, YOUR_EXCEL_FILE)
@@ -547,4 +529,5 @@ if __name__ == "__main__":
     print(f"κ: {binary['kappa']:.3f} | 95% CI: [{binary['ci_low']:.3f}, {binary['ci_high']:.3f}]")
 
     plot_combined_analysis6(df_full, kappa_results)
+
 
