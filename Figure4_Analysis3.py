@@ -1,6 +1,5 @@
 import os
 import sys
-
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -11,9 +10,7 @@ import matplotlib.patches as mpatches
 from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
 
 
-# =============================================================================
-# --- USER CONFIGURATION ---
-# =============================================================================
+
 FILE_SCORES_RADIO = "robustness_scores_Radiorag_dataset.csv"
 FILE_SCORES_TUM = "robustness_scores_internal_TUM_dataset.csv"
 FILE_TRANS_RADIO = "robustness_transitions_Radiorag_dataset.csv"
@@ -25,9 +22,7 @@ OUTPUT_FIGURE = "Figure4_Analysis3.png"
 
 RNG_SEED = 42
 
-# =============================================================================
-# --- STYLE SETUP (Nature-ish; consistent with your other figure scripts) ---
-# =============================================================================
+
 plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['font.sans-serif'] = ['Arial', 'DejaVu Sans']
 plt.rcParams['axes.linewidth'] = 1.0
@@ -40,7 +35,6 @@ plt.rcParams["axes.grid"] = False
 PALETTE_DATASETS = {"Benchmark-RadQA": "#1f77b4", "Board-RadQA": "#2ca02c"}
 PALETTE_METHODS = {"zero-shot": "tab:blue", "agentic": "tab:green"}
 
-# --- BINS: match Figure 6 severity colors (Low/Moderate/High) ---
 PALETTE_BINS = {
     "Low": "#d62728",
     "Medium": "#4c72b0",  # Figure 6 "Moderate"
@@ -50,12 +44,7 @@ PALETTE_BINS = {
 PALETTE_CATS = {"Improved": "#2ca02c", "Worsened": "#d62728"}
 PALETTE_TRANS = {"Improved": "#2ca02c", "No Change": "#bbbbbb", "Decreased": "#d62728"}
 
-
-# =============================================================================
-# --- HELPERS ---
-# =============================================================================
 def standardize_dataset_names(df):
-    """Normalize dataset labels across files."""
     if df is None or df.empty:
         return df
     return df.replace(
@@ -67,7 +56,6 @@ def standardize_dataset_names(df):
 
 
 def safe_float_from_summary(summary_df, metric_name, default=np.nan):
-    """Fetch numeric value from a summary table with columns: Metric, Value."""
     if summary_df is None or summary_df.empty:
         return float(default)
     try:
@@ -86,10 +74,6 @@ def p_to_str(p):
 
 
 def tukey_bounds(values):
-    """
-    Return Tukey (1.5*IQR) bounds. Using bounds (not value matching) avoids
-    problems with duplicate values and keeps alignment with jittered points.
-    """
     v = np.asarray(values, dtype=float)
     v = v[~np.isnan(v)]
     if v.size < 4:
@@ -103,10 +87,6 @@ def tukey_bounds(values):
 
 def add_jitter_points(ax, x_pos, y_vals, rng, jitter=0.06, size=7, alpha=0.35,
                       c=None, ec=None, lw=0.6, zorder=2):
-    """
-    Plot jittered points AND return (x, y) so you can highlight subsets
-    (e.g., Tukey outliers) exactly on top of the same points.
-    """
     y = np.asarray(y_vals, dtype=float)
     y = y[~np.isnan(y)]
     x = x_pos + rng.normal(0, jitter, size=y.size)
@@ -123,10 +103,6 @@ def load_csv_checked(filepath):
         sys.exit(f"Error reading CSV '{filepath}': {e}")
 
 def pad_axes_in_container(ax, pad_left=0.06, pad_right=0.06, pad_bottom=0.10, pad_top=0.08):
-    """
-    Shrink an axes rectangle inside its current position by padding fractions
-    (fractions are relative to the axes width/height).
-    """
     pos = ax.get_position()
     x0, y0, w, h = pos.x0, pos.y0, pos.width, pos.height
     new_x0 = x0 + pad_left * w
@@ -134,9 +110,7 @@ def pad_axes_in_container(ax, pad_left=0.06, pad_right=0.06, pad_bottom=0.10, pa
     new_w  = w * (1 - pad_left - pad_right)
     new_h  = h * (1 - pad_bottom - pad_top)
     ax.set_position([new_x0, new_y0, new_w, new_h])
-# =============================================================================
-# PANEL a: Paired scatter (zero-shot vs agentic) — entropy-style design
-# =============================================================================
+
 def plot_panel_a_scatter(ax, scores_df):
     df = standardize_dataset_names(scores_df.copy())
 
@@ -162,7 +136,6 @@ def plot_panel_a_scatter(ax, scores_df):
 
     ax.plot([0, max_val], [0, max_val], ls="-", c="black", lw=1.0, zorder=1)
 
-    # Board first in legend; Board circle green, Benchmark triangle blue
     order = ["Board-RadQA", "Benchmark-RadQA"]
     merged["dataset"] = pd.Categorical(merged["dataset"], categories=order, ordered=True)
 
@@ -187,7 +160,6 @@ def plot_panel_a_scatter(ax, scores_df):
     ax.set_xlim(0, max_val)
     ax.set_ylim(0, max_val)
 
-    # Make it fill the row (otherwise equal aspect makes it look centered)
     ax.set_aspect("auto")
 
     ax.set_xlabel("Robustness score (zero-shot)")
@@ -206,9 +178,7 @@ def plot_panel_a_scatter(ax, scores_df):
     ax.set_axisbelow(True)
 
 
-# =============================================================================
-# PANEL b: Faceted distributions with a CONTAINER axis + OUTLIERS aligned to jitter points
-# =============================================================================
+
 def plot_panel_b_distributions(ax_container, scores_df, summary_radio, summary_tum):
     ax_container.set_title(r"$\mathbf{b}$  Robustness score distributions",
                            loc="left", fontsize=14, y=1.08)
@@ -234,11 +204,9 @@ def plot_panel_b_distributions(ax_container, scores_df, summary_radio, summary_t
         data = [zs, ag]
         positions = [1, 2]
 
-        # jitter (ALL points) + store exact jitter positions for outlier highlighting
         x_zs, y_zs = add_jitter_points(ax, 1, zs, rng, c="tab:orange", size=7, alpha=0.35, jitter=0.06, zorder=2)
         x_ag, y_ag = add_jitter_points(ax, 2, ag, rng, c="tab:red",    size=7, alpha=0.35, jitter=0.06, zorder=2)
 
-        # violin
         vp = ax.violinplot(
             data,
             positions=positions,
@@ -253,7 +221,6 @@ def plot_panel_b_distributions(ax_container, scores_df, summary_radio, summary_t
             body.set_edgecolor("none")
             body.set_zorder(1)
 
-        # box (keep fliers off; we overlay our aligned outlier highlights)
         ax.boxplot(
             data,
             positions=positions,
@@ -266,7 +233,6 @@ def plot_panel_b_distributions(ax_container, scores_df, summary_radio, summary_t
             medianprops=dict(color="black", linewidth=1.3),
         )
 
-        # --- Tukey outliers: highlight the SAME jittered points ---
         lo_zs, hi_zs = tukey_bounds(zs)
         lo_ag, hi_ag = tukey_bounds(ag)
 
@@ -304,20 +270,15 @@ def plot_panel_b_distributions(ax_container, scores_df, summary_radio, summary_t
         ax.set_ylabel("Robustness score", fontsize=12)
         ax.set_axisbelow(True)
 
-        # (optional) compute stats; not drawn by default
         if summ is not None:
             mean_delta = safe_float_from_summary(summ, "Mean Δrobustness")
             p_val = safe_float_from_summary(summ, "Wilcoxon p-value")
             eff_r = safe_float_from_summary(summ, "Effect size (r)")
             _ = f"ΔR̄={mean_delta:.3f}\n{p_to_str(p_val)}\nr={eff_r:.2f}"
 
-    # Hide container frame lines (like your panel b pattern)
     ax_container.axis("off")
 
 
-# =============================================================================
-# PANEL c: Stacked bars of robustness bins
-# =============================================================================
 def plot_panel_c_bins(ax, scores_df):
     df = standardize_dataset_names(scores_df.copy())
 
@@ -335,7 +296,7 @@ def plot_panel_c_bins(ax, scores_df):
 
     centers = np.arange(len(datasets))
     width = 0.35
-    gap = 0.06                 # <-- small distance between ZS and AG bars (in x units)
+    gap = 0.06                 
     
     x_zs = centers - (width/2 + gap/2)
     x_ag = centers + (width/2 + gap/2)
@@ -390,16 +351,8 @@ def plot_panel_c_bins(ax, scores_df):
     ax.set_title(r'$\mathbf{c}$  Robustness bin proportions', loc='left', fontsize=14)#, y=1.08)
 
 
-# =============================================================================
-# PANEL d: Alluvial / Sankey-style bin transitions (DRAW ONE) + container wrapper
-# =============================================================================
 def draw_alluvial_one(ax, trans_df, title, show_panel_header=False):
-    # if show_panel_header:
-    #     ax.text(0.0, 1, r"$\mathbf{d}$", transform=ax.transAxes,
-    #             ha="left", va="bottom", fontsize=12, fontweight="bold")
-    #     ax.text(0.06, 1, "Robustness bin transitions",
-    #             transform=ax.transAxes, ha="left", va="bottom", fontsize=10, fontweight="normal")
-
+  
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.axis("off")
@@ -482,11 +435,9 @@ def plot_panel_d_transitions(ax_container, trans_radio, trans_tum):
     if not needed.issubset(set(trans_radio.columns)) or not needed.issubset(set(trans_tum.columns)):
         raise ValueError("Transition CSVs must include columns: zero_shot_bin, agentic_bin")
 
-    # Title once (container)
     ax_container.set_title(r"$\mathbf{d}$  Robustness bin transitions",
                            loc="left", fontsize=14)#, y=1.08)
 
-    # Create 2 inner axes inside the container
     gs_inner = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=ax_container, wspace=0.2)
     
     
@@ -495,19 +446,15 @@ def plot_panel_d_transitions(ax_container, trans_radio, trans_tum):
         ax_container.figure.add_subplot(ax)
 
     ax_left, ax_right = axes
-    # ---- ADD PADDING INSIDE THE BOX (make the content smaller so it doesn't collide) ----
     pad_axes_in_container(ax_left,  pad_left=0.06, pad_right=0.0, pad_bottom=0.12, pad_top=0.10)
     pad_axes_in_container(ax_right, pad_left=0.03, pad_right=0.06, pad_bottom=0.12, pad_top=0.10)
     
-    # Draw sankeys
     draw_alluvial_one(ax_left, trans_radio, "Benchmark-RadQA", show_panel_header=False)
     draw_alluvial_one(ax_right, trans_tum, "Board-RadQA", show_panel_header=False)
 
-    # Draw sankeys
     draw_alluvial_one(ax_left, trans_radio, "Benchmark-RadQA", show_panel_header=False)
     draw_alluvial_one(ax_right, trans_tum, "Board-RadQA", show_panel_header=False)
 
-    # Ensure inner axes have no spines (only the container has the box)
     for ax in (ax_left, ax_right):
         for s in ax.spines.values():
             s.set_visible(False)
@@ -528,9 +475,6 @@ def plot_panel_d_transitions(ax_container, trans_radio, trans_tum):
     ax_container.patch.set_alpha(0.0)
 
 
-# =============================================================================
-# --- MAIN FIGURE BUILDER ---
-# =============================================================================
 def create_figure_4(script_dir):
     print("Loading data...")
 
@@ -581,10 +525,8 @@ def create_figure_4(script_dir):
     return out_path
 
 
-# =============================================================================
-# --- MAIN ---
-# =============================================================================
 if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
     print(f"Running from: {script_dir}")
+
     create_figure_4(script_dir)
