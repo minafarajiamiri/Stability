@@ -6,20 +6,14 @@ import numpy as np
 import sys
 import os
 
-# ==========================================
-# --- USER CONFIGURATION SECTION ---
-# --- Configuration for ANALYSIS 2 (Figure 3) ---
-# ==========================================
 YOUR_EXCEL_FILE = 'analyse2_final_v3.xlsx' # Updated file name
 YOUR_SHEET_NAME = 'Sheet1'        # Updated sheet name based on previous interactions
 
-# Column headers expected in analyse2.xlsx
 COL_DATASET_NAME = 'dataset'
 COL_M_ZEROSHOT = 'M_zero'
 COL_M_AGENTIC = 'M_agentic'
 COL_AG_CORRECT = 'C_agentic'
-# ==========================================
-# --- Style Setup (Kept identical to reference) ---
+
 plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['font.sans-serif'] = ['Arial', 'DejaVu Sans']
 plt.rcParams['axes.linewidth'] = 1.0
@@ -29,7 +23,6 @@ plt.rcParams['ytick.labelsize'] = 11
 plt.rcParams['legend.fontsize'] = 12
 plt.rcParams['legend.frameon'] = False
 
-# --- Palettes for Analysis 2 ---
 PALETTE_DATASETS = {'Benchmark-RadQA': '#1f77b4', 'Board-RadQA': '#2ca02c'}
 # New palette for the 4 outcome categories of Analysis 2
 PALETTE_CATS_A2 = {
@@ -39,9 +32,6 @@ PALETTE_CATS_A2 = {
     'No change': '#bbbbbb'                        # Light Grey
 }
 
-# ==============================================================================
-# --- HELPER FUNCTIONS (Kept identical to reference) ---
-# ==============================================================================
 def tukey_outliers(values):
     v = np.asarray(values, dtype=float)
     v = v[~np.isnan(v)]
@@ -56,13 +46,11 @@ def add_jitter_points(ax, x_pos, y_vals, rng, jitter=0.06, size=14, alpha=0.6, c
     x = x_pos + rng.normal(0, jitter, size=y.size)
     ax.scatter(x, y, s=size, alpha=alpha, c=c, edgecolors=ec, linewidths=lw, zorder=2)
 
-# --- Updated Data Loading for Analysis 2 ---
 def load_and_prep_data_a2(filepath, sheetname):
     if not os.path.exists(filepath): sys.exit(f"Error: File not found at {filepath}")
     try: df = pd.read_excel(filepath, sheet_name=sheetname)
     except Exception as e: sys.exit(f"Error reading Excel: {e}")
 
-    # Map to internal standard names
     col_map = {
         COL_DATASET_NAME: 'dataset',
         COL_M_ZEROSHOT: 'M_zs',
@@ -73,16 +61,13 @@ def load_and_prep_data_a2(filepath, sheetname):
     if missing: sys.exit(f"Missing columns in {filepath}: {missing}")
     df = df.rename(columns=col_map)
     
-    # Numeric conversion and cleaning
     df['M_zs'] = pd.to_numeric(df['M_zs'], errors='coerce')
     df['M_ag'] = pd.to_numeric(df['M_ag'], errors='coerce')
     df['ag_correct'] = pd.to_numeric(df['ag_correct'], errors='coerce')
     df = df.dropna(subset=['dataset', 'M_zs', 'M_ag', 'ag_correct'])
 
-    # Calculate Delta M
     df['delta_M'] = df['M_ag'] - df['M_zs']
 
-    # Categorize Outcomes (Analysis 2 specific logic)
     threshold = 1e-9
     conditions = [
         (df['delta_M'] > threshold) & (df['ag_correct'] == 1),
@@ -92,15 +77,12 @@ def load_and_prep_data_a2(filepath, sheetname):
     choices = ['Agreement $\\uparrow$ & Correct', 'Agreement $\\uparrow$ & Incorrect', 'Agreement $\\downarrow$']
     df['category'] = np.select(conditions, choices, default='No change')
     
-    # Set categorical order
     cat_order = ['Agreement $\\uparrow$ & Correct', 'Agreement $\\uparrow$ & Incorrect', 
                  'Agreement $\\downarrow$', 'No change']
     df['category'] = pd.Categorical(df['category'], categories=cat_order, ordered=True)
     return df
 
-# ==============================================================================
-# --- CORE PLOTTING LOGIC FOR THE CUSTOM VIOLIN STYLE (Kept EXACTLY the same) ---
-# ==============================================================================
+
 def draw_styled_violin_pair(ax, data_z, data_a):
     """Helper function to draw the specific style on a given axis."""
     data = [data_z, data_a]
@@ -108,11 +90,9 @@ def draw_styled_violin_pair(ax, data_z, data_a):
     PT_COLORS = {1: "tab:orange", 2: "tab:red"}
     VN_COLORS = ["tab:blue", "tab:green"]
 
-    # 1. Jittered Points
     add_jitter_points(ax, 1, data_z, rng, size=15, alpha=0.5, c=PT_COLORS[1], ec="none")
     add_jitter_points(ax, 2, data_a, rng, size=15, alpha=0.5, c=PT_COLORS[2], ec="none")
 
-    # 2. Violin
     vp = ax.violinplot(data, positions=[1, 2], showmeans=False, showmedians=True, showextrema=True, widths=0.8)
     for body, c in zip(vp["bodies"], VN_COLORS):
         body.set_facecolor(c)
@@ -124,14 +104,12 @@ def draw_styled_violin_pair(ax, data_z, data_a):
         vp[part].set_linewidth(1)
         vp[part].set_zorder(3)
 
-    # 3. Box plot
     ax.boxplot(data, positions=[1, 2], widths=0.2, showfliers=False, patch_artist=True,
                boxprops={'facecolor':'none', 'linewidth':1.2, 'zorder':4},
                whiskerprops={'linewidth':1.2, 'zorder':4},
                capprops={'linewidth':1.2, 'zorder':4},
                medianprops={'color':'black', 'linewidth':1.5, 'zorder':5})
 
-    # 4. Outliers
     for pos, vals, pt_col in zip([1, 2], data, PT_COLORS.values()):
         outs = tukey_outliers(vals)
         if outs.size:
@@ -141,9 +119,6 @@ def draw_styled_violin_pair(ax, data_z, data_a):
 
     ax.set_xticks([1, 2])
     ax.set_xticklabels(["Zero-shot", "Agentic"])
-# ==============================================================================
-# --- PANEL PLOTTING FUNCTIONS (Adapted for Analysis 2 Data) ---
-# ==============================================================================
 
 def plot_panel_a_faceted_a2(ax_container, df, label):
     """Panel a: Faceted Majority Fraction (M) distribution using custom violin style."""
@@ -169,7 +144,6 @@ def plot_panel_a_faceted_a2(ax_container, df, label):
 
     ax_container.axis('off')
 
-# --- Panel b (Scatter) is omitted ---
 def plot_panel_b_hist_a2(ax, df, label):
     """Panel b: Histogram of change in majority fraction (Delta M)."""
     sns.histplot(data=df, x='delta_M', hue='dataset', palette=PALETTE_DATASETS,
@@ -238,9 +212,7 @@ def plot_panel_c_bars_a2(ax, df, label):
         ax.bar_label(container, labels=labels_bar, label_type='center', color='white', fontsize=11, fontweight='bold')
         
     ax.set_title(f'$\mathbf{{{label}}}$   Proportions of consensus shift outcomes', loc='left', fontsize=14, y=1.1) #fontweight='bold', 
-# ==============================================================================
-# --- MAIN (Using exact same layout structure) ---
-# ==============================================================================
+
 if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
     excel_path = os.path.join(script_dir, YOUR_EXCEL_FILE)
@@ -268,3 +240,4 @@ if __name__ == "__main__":
     print(f"Figure saved to {output_filename}")
 
     plt.show()
+
