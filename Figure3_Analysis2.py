@@ -6,8 +6,9 @@ import numpy as np
 import sys
 import os
 
-YOUR_EXCEL_FILE = 'analyse2_final_v3.xlsx' # Updated file name
-YOUR_SHEET_NAME = 'Sheet1'        # Updated sheet name based on previous interactions
+
+YOUR_EXCEL_FILE = 'analyse2_final_v3.xlsx' 
+YOUR_SHEET_NAME = 'Sheet1'       
 
 COL_DATASET_NAME = 'dataset'
 COL_M_ZEROSHOT = 'M_zero'
@@ -24,7 +25,6 @@ plt.rcParams['legend.fontsize'] = 12
 plt.rcParams['legend.frameon'] = False
 
 PALETTE_DATASETS = {'Benchmark-RadQA': '#1f77b4', 'Board-RadQA': '#2ca02c'}
-# New palette for the 4 outcome categories of Analysis 2
 PALETTE_CATS_A2 = {
     'Agreement $\\uparrow$ & Correct': '#2ca02c',   # Green
     'Agreement $\\uparrow$ & Incorrect': '#d62728', # Red
@@ -240,4 +240,5 @@ if __name__ == "__main__":
     print(f"Figure saved to {output_filename}")
 
     plt.show()
+
 
