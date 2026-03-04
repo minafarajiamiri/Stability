@@ -19,8 +19,6 @@ COL_M_ZEROSHOT = 'M_zero'
 COL_M_AGENTIC = 'M_agentic'
 COL_AG_CORRECT = 'C_agentic'
 # ==========================================
-
-
 # --- Style Setup (Kept identical to reference) ---
 plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['font.sans-serif'] = ['Arial', 'DejaVu Sans']
@@ -107,7 +105,6 @@ def draw_styled_violin_pair(ax, data_z, data_a):
     """Helper function to draw the specific style on a given axis."""
     data = [data_z, data_a]
     rng = np.random.default_rng(42)
-    # Colors for points and violins (using local palette as in reference)
     PT_COLORS = {1: "tab:orange", 2: "tab:red"}
     VN_COLORS = ["tab:blue", "tab:green"]
 
@@ -144,43 +141,35 @@ def draw_styled_violin_pair(ax, data_z, data_a):
 
     ax.set_xticks([1, 2])
     ax.set_xticklabels(["Zero-shot", "Agentic"])
-
-
 # ==============================================================================
 # --- PANEL PLOTTING FUNCTIONS (Adapted for Analysis 2 Data) ---
 # ==============================================================================
 
 def plot_panel_a_faceted_a2(ax_container, df, label):
     """Panel a: Faceted Majority Fraction (M) distribution using custom violin style."""
-    # Grid setup identical to reference
     gs_inner = gridspec.GridSpecFromSubplotSpec(1, 3, subplot_spec=ax_container, wspace=0.3)
     axes = [plt.Subplot(ax_container.figure, gs_inner[i]) for i in range(3)]
     for ax in axes: ax_container.figure.add_subplot(ax)
     
     groups = ['Pooled', 'Benchmark-RadQA', 'Board-RadQA']
 
-    # Main panel title
     ax_container.set_title(f'$\mathbf{{{label}}}$ Majority fraction distribution by method', 
                            loc='left', fontsize=14, y=1.06) #fontweight='bold', 
     
     for i, (ax, group) in enumerate(zip(axes, groups)):
         d_sub = df if group == 'Pooled' else df[df['dataset'] == group]
         
-        # Call the EXACT SAME styling helper, passing new data (M_zs, M_ag)
         draw_styled_violin_pair(ax, d_sub['M_zs'], d_sub['M_ag'])
         
-        # Manual facet labels
         ax.text(0.5, 1.02, group, transform=ax.transAxes, 
                 ha='center', va='bottom', fontsize=12)#, fontweight='bold')
         
-        # Y-label appropriate for this analysis
         ax.set_ylabel("Majority fraction", fontsize=12)
         ax.set_ylim(-0.05, 1.05) # M is bounded 0-1
 
     ax_container.axis('off')
 
 # --- Panel b (Scatter) is omitted ---
-
 def plot_panel_b_hist_a2(ax, df, label):
     """Panel b: Histogram of change in majority fraction (Delta M)."""
     sns.histplot(data=df, x='delta_M', hue='dataset', palette=PALETTE_DATASETS,
@@ -195,11 +184,7 @@ def plot_panel_b_hist_a2(ax, df, label):
     ax.set_xlim(-limit, limit)
     ymin, ymax = ax.get_ylim()
 
-    # # Background Shading
-    # ax.axvspan(0, limit, ymin=0, ymax=1, color='#bbbbbb', alpha=0.1, zorder=0, edgecolor='none')
-    # ax.axvspan(-limit, 0, ymin=0, ymax=1, color='#7f7f7f', alpha=0.1, zorder=0, edgecolor='none')
-    
-    # Text and Arrows - MODIFIED TO HAVE SHORT HEADS
+
     y_txt = ymax * 0.85
     # Define arrow dimensions based on y-axis scale for consistency
     arrow_width = y_txt * 0.01 
@@ -207,12 +192,10 @@ def plot_panel_b_hist_a2(ax, df, label):
     arrow_hl = y_txt * 0.01 # Explicitly short head length
 
     ax.text(limit*0.25, y_txt, 'Agreement\nIncreased', ha='center', color='#555555', fontweight='bold', zorder=4)
-    # Added head_length parameter
     ax.arrow(limit*0.05, y_txt*0.9, limit*0.12, 0, color='#555555', 
              width=arrow_width, head_width=arrow_hw, head_length=arrow_hl, zorder=4)
              
     ax.text(-limit*0.25, y_txt, 'Agreement\nDecreased', ha='center', color='#555555', fontweight='bold', zorder=4)
-    # Added head_length parameter
     ax.arrow(-limit*0.05, y_txt*0.9, -limit*0.12, 0, color='#555555', 
              width=arrow_width, head_width=arrow_hw, head_length=arrow_hl, zorder=4)
 
@@ -229,15 +212,12 @@ def plot_panel_c_bars_a2(ax, df, label):
         d_sub = df if group == 'Pooled' else df[df['dataset'] == group]
         group_counts.append(len(d_sub))
         
-        # Calculate proportions of the 4 new categories
         counts = d_sub['category'].value_counts(normalize=True)
-        # Ensure all 4 categories are present in correct order
         counts = counts.reindex(PALETTE_CATS_A2.keys(), fill_value=0)
         props_data.append(counts * 100)
 
     df_props = pd.DataFrame(props_data, index=groups)
     
-    # Plot stacked bars using the new A2 palette
     colors = [PALETTE_CATS_A2[c] for c in df_props.columns]
     df_props.plot(kind='bar', stacked=True, ax=ax, color=colors, 
                   width=0.6, edgecolor='white')
@@ -246,24 +226,18 @@ def plot_panel_c_bars_a2(ax, df, label):
     plt.setp(ax.get_xticklabels(), rotation=0)
     ax.set_xlim(left=-0.4, right=3.5)
     
-    # N counts above bars
     for i, count in enumerate(group_counts):
         ax.text(i, 102, f'N={count}', ha='center', va='bottom', 
                 fontsize=12,  color='black') #fontweight='bold',
 
-    # Legend
     handles, labels_leg = ax.get_legend_handles_labels()
     ax.legend(handles[::-1], labels_leg[::-1], title='', loc='upper right', bbox_to_anchor=(1.0, 1.0))
     
-    # Bar labels
     for container in ax.containers:
-        # Only label segments > 4% for readability
         labels_bar = [f'{v.get_height():.0f}%' if v.get_height() > 4 else '' for v in container]
-        # Use black text for lighter bars, white for darker bars if needed, sticking to white for consistency with ref
         ax.bar_label(container, labels=labels_bar, label_type='center', color='white', fontsize=11, fontweight='bold')
         
     ax.set_title(f'$\mathbf{{{label}}}$   Proportions of consensus shift outcomes', loc='left', fontsize=14, y=1.1) #fontweight='bold', 
-
 # ==============================================================================
 # --- MAIN (Using exact same layout structure) ---
 # ==============================================================================
@@ -271,33 +245,26 @@ if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
     excel_path = os.path.join(script_dir, YOUR_EXCEL_FILE)
     print(f"Loading data for Analysis 2 from {excel_path}...")
-    # Use the new data loading function
     df = load_and_prep_data_a2(excel_path, YOUR_SHEET_NAME)
     print(f"Data loaded. N={len(df)}")
 
-    # --- MODIFIED LAYOUT DEFINITION ---
     fig = plt.figure(figsize=(12, 14)) 
-    # 3 rows, 1 column. All rows span full width.
     gs = gridspec.GridSpec(3, 1, 
                            height_ratios=[1.5, 1, 0.8], 
                            hspace=0.4)
 
-    # Assign axes based on new layout
     ax_a_container = fig.add_subplot(gs[0, 0]) # Row 1, full width
     ax_b = fig.add_subplot(gs[1, 0])           # Row 2, full width (was split before)
     ax_c = fig.add_subplot(gs[2, 0])           # Row 3, full width
 
     print("Generating Figure 3 plots...")
-    # Call plotting functions with updated labels
     plot_panel_a_faceted_a2(ax_a_container, df, label='a')
-    # Panel b is now the histogram, spanning full width
     plot_panel_b_hist_a2(ax_b, df, label='b')
-    # Panel c is now the stacked bars
     plot_panel_c_bars_a2(ax_c, df, label='c')
 
-    # fig.suptitle('Figure 3. Agentic reasoning alters majority decision consensus and correctness', fontsize=16, fontweight='bold', y=0.99)
 
     output_filename = os.path.join(script_dir, 'Figure3_Analysis2.png')
     plt.savefig(output_filename, dpi=300, bbox_inches='tight')
     print(f"Figure saved to {output_filename}")
+
     plt.show()
