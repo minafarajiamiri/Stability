@@ -1,22 +1,3 @@
-"""
-Standalone script to generate Supplementary Figure S1: Verbosity Analysis
-Response verbosity does not reliably correlate with correctness
-
-Requirements:
-- pandas
-- matplotlib
-- numpy
-
-Usage:
-    python generate_supplementary_figure_s1_standalone.py
-
-Input:
-    analysis4_detailed_results.json (in same directory as script)
-
-Output:
-    Supplementary_Figure_S1.png (saved in same directory as script)
-"""
-
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
@@ -25,14 +6,10 @@ import json
 import os
 import sys
 
-# ==========================================
-# --- CONFIGURATION ---
-# ==========================================
 JSON_FILE = 'analysis4_detailed_results.json'
 OUTPUT_FILE = 'Supplementary_Figure_S1.png'
 DPI = 300
 
-# --- Style Setup (matching paper style) ---
 plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['font.sans-serif'] = ['Arial', 'DejaVu Sans']
 plt.rcParams['axes.linewidth'] = 1.0
@@ -42,17 +19,12 @@ plt.rcParams['ytick.labelsize'] = 11
 plt.rcParams['legend.fontsize'] = 10
 plt.rcParams['legend.frameon'] = False
 
-# Colors (matching reference style)
 COLOR_CORRECT = 'tab:blue'
 COLOR_INCORRECT = 'tab:green'
 COLOR_CORRECT_PTS = 'tab:orange'
 COLOR_INCORRECT_PTS = 'tab:red'
 
-# ==============================================================================
-# --- DATA LOADING ---
-# ==============================================================================
 def load_verbosity_data(json_path):
-    """Load verbosity analysis results from JSON."""
     if not os.path.exists(json_path):
         print(f"Error: File not found: {json_path}")
         print(f"Please ensure '{JSON_FILE}' is in the same directory as this script.")
@@ -69,50 +41,26 @@ def load_verbosity_data(json_path):
         print(f"Error loading data: {e}")
         sys.exit(1)
 
-# ==============================================================================
-# --- PLOTTING HELPER ---
-# ==============================================================================
 def create_distribution_from_quartiles(median, q1, q3, n, seed=42):
-    """
-    Create a synthetic distribution that matches the reported quartiles.
-    
-    This approximates the actual distribution using the reported summary statistics.
-    """
     np.random.seed(seed)
     
-    # Calculate IQR
     iqr = q3 - q1
     
-    # Generate base distribution (standard normal)
     base = np.random.randn(n)
     
-    # Scale to match IQR (IQR of standard normal is ~1.35)
     scaled = base * (iqr / 1.35)
     
-    # Shift to match median
     shifted = scaled + median
     
-    # Clip to reasonable range (positive values, with some tail room)
     lower_bound = max(0, q1 - 1.5 * iqr)
-    upper_bound = q3 + 3 * iqr  # Allow for long tail
+    upper_bound = q3 + 3 * iqr  
     shifted = np.clip(shifted, lower_bound, upper_bound)
     
     return shifted
 
 
 def plot_verbosity_violin(ax, stats_correct, stats_incorrect, title, show_ylabel=False):
-    """
-    Plot violin plots for correct vs incorrect responses.
     
-    Args:
-        ax: matplotlib axis
-        stats_correct: dict with correct response statistics
-        stats_incorrect: dict with incorrect response statistics
-        title: panel title
-        show_ylabel: whether to show y-axis label
-    """
-    
-    # Create distributions matching the reported quartiles
     correct_data = create_distribution_from_quartiles(
         stats_correct['median'], 
         stats_correct['q1'], 
@@ -127,7 +75,6 @@ def plot_verbosity_violin(ax, stats_correct, stats_incorrect, title, show_ylabel
         stats_incorrect['n']
     )
     
-    # Violin plot
     positions = [1, 2]
     data = [correct_data, incorrect_data]
     colors = [COLOR_CORRECT, COLOR_INCORRECT]
@@ -146,17 +93,13 @@ def plot_verbosity_violin(ax, stats_correct, stats_incorrect, title, show_ylabel
         vp[part].set_linewidth(1)
         vp[part].set_zorder(3)
     
-    # Box plot overlay
     bp = ax.boxplot(data, positions=positions, widths=0.25, showfliers=False,
                     patch_artist=True,
                     boxprops={'facecolor':'none', 'linewidth':1.2, 'zorder':4},
-                    # whiskerprops={'linewidth':1.2, 'zorder':4},
-                    # capprops={'linewidth':1.2, 'zorder':4},
                     whiskerprops={'linewidth':0, 'zorder':0},
                     capprops={'linewidth':0, 'zorder':0},
                     medianprops={'color':'black', 'linewidth':1.5, 'zorder':5})
     
-    # Jittered points (subset for visibility)
     rng = np.random.default_rng(42)
     n_show = min(200, len(correct_data))
     indices_c = rng.choice(len(correct_data), n_show, replace=False)
@@ -170,7 +113,6 @@ def plot_verbosity_violin(ax, stats_correct, stats_incorrect, title, show_ylabel
     ax.scatter(2 + jitter_i, incorrect_data[indices_i], s=12, alpha=0.4,
                c=COLOR_INCORRECT_PTS, edgecolors='none', zorder=2)
     
-    # Formatting
     ax.set_xticks([1, 2])
     ax.set_xticklabels(['Correct', 'Incorrect'], fontsize=11)
     
@@ -179,57 +121,37 @@ def plot_verbosity_violin(ax, stats_correct, stats_incorrect, title, show_ylabel
     else:
         ax.set_ylabel('')
     
-    # Log scale for y-axis to handle heavy tails
-    #ax.set_yscale('log')
     ax.set_ylim(0, 1750)
     
-    # Get p-value and effect size from stats
     p_val = stats_incorrect.get('p_value', None)
     cliffs_d = stats_incorrect.get('cliffs_delta', None)
     
-    # Title with dataset and method info
     ax.set_title(title, fontsize=12, pad=10)
     
-    # Annotation with statistics
     if p_val is not None and cliffs_d is not None:
-        # Format p-value
         if p_val < 0.001:
             p_str = "$p < 0.001$"
         else:
             p_str = f"$p = {p_val:.3f}$"
         
-        # Format Cliff's delta
         cliffs_str = f"Cliff's $\\delta = {cliffs_d:.3f}$"
         
-        # Significance marker
         sig_marker = "*" if p_val < 0.05 else "n.s."
         
-        # Annotation text
         ann_text = f"{p_str}\n{cliffs_str}\n({sig_marker})"
         
-        # Position annotation in upper right
-        # ax.text(0.98, 0.98, ann_text, transform=ax.transAxes,
-        #         ha='right', va='top', fontsize=9,
-        #         bbox=dict(boxstyle='round', facecolor='white', 
-        #                  edgecolor='gray', alpha=0.8))
-    
-    # Grid
+        
     ax.grid(axis='y', alpha=0.3, linestyle='--', linewidth=0.5)
     ax.set_axisbelow(True)
 
-# ==============================================================================
-# --- MAIN FIGURE GENERATION ---
-# ==============================================================================
+
 def generate_figure_s1(data_list, output_path):
-    """Generate Supplementary Figure S1."""
     
-    # Organize data by dataset and method
     data_dict = {}
     for item in data_list:
         dataset = item['dataset']
         method = item['method']
         
-        # Standardize dataset names
         if 'Radiorag' in dataset or 'radiorag' in dataset.lower():
             dataset_std = 'Benchmark-RadQA'
         elif 'TUM' in dataset or 'tum' in dataset.lower():
@@ -239,7 +161,6 @@ def generate_figure_s1(data_list, output_path):
         
         key = (dataset_std, method)
         
-        # Prepare statistics for correct and incorrect
         stats_correct = {
             'n': item['n_correct'],
             'median': item['correct_median'],
@@ -260,12 +181,10 @@ def generate_figure_s1(data_list, output_path):
         
         data_dict[key] = (stats_correct, stats_incorrect)
     
-    # Create figure with 2x2 grid
     fig = plt.figure(figsize=(12, 10))
     gs = gridspec.GridSpec(2, 2, hspace=0.35, wspace=0.25,
                           left=0.08, right=0.98, top=0.94, bottom=0.06)
     
-    # Panel labels and titles
     panels = [
         ('Benchmark-RadQA', 'zero-shot', 'a'),
         ('Benchmark-RadQA', 'agentic', 'b'),
@@ -285,21 +204,14 @@ def generate_figure_s1(data_list, output_path):
         
         stats_correct, stats_incorrect = data_dict[key]
         
-        # Title combining label, dataset, and method
         method_title = method.capitalize()
         title = f"{dataset}, {method_title}"
         
-        # Only show ylabel for leftmost panels
         show_ylabel = (col == 0)
         
         plot_verbosity_violin(ax, stats_correct, stats_incorrect, 
                             title, show_ylabel=show_ylabel)
     
-    # Overall figure title
-    # fig.suptitle('Supplementary Figure S1: Response verbosity does not reliably correlate with correctness',
-    #              fontsize=14, fontweight='bold', y=0.98)
-    
-    # Save figure
     plt.savefig(output_path, dpi=DPI, bbox_inches='tight')
     print(f"\n✓ Figure saved successfully to: {output_path}")
     print(f"  Resolution: {DPI} DPI")
@@ -307,19 +219,15 @@ def generate_figure_s1(data_list, output_path):
     
     return fig
 
-# ==============================================================================
-# --- MAIN ---
-# ==============================================================================
+
 def main():
-    """Main execution function."""
     print("="*60)
     print("Generating Supplementary Figure S1")
     print("Response verbosity vs. correctness analysis")
     print("="*60)
     
-    # Get script directory
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    if not script_dir:  # If running interactively
+    if not script_dir:  
         script_dir = os.getcwd()
     
     json_path = os.path.join(script_dir, JSON_FILE)
@@ -328,18 +236,15 @@ def main():
     print(f"\nInput file: {json_path}")
     print(f"Output file: {output_path}")
     
-    # Load data
     print("\nLoading data...")
     data = load_verbosity_data(json_path)
     print(f"✓ Loaded {len(data)} comparisons")
     
-    # Display loaded comparisons
     print("\nComparisons found:")
     for item in data:
         print(f"  - {item['dataset']}, {item['method']}: "
               f"n_correct={item['n_correct']}, n_incorrect={item['n_incorrect']}")
     
-    # Generate figure
     print("\nGenerating figure...")
     fig = generate_figure_s1(data, output_path)
     
@@ -347,7 +252,6 @@ def main():
     print("Figure generation complete!")
     print("="*60)
     
-    # Show the figure
     plt.show()
 
 if __name__ == "__main__":
