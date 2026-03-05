@@ -1,0 +1,544 @@
+"""
+Analysis 4: Association Between Output Length and Correctness
+
+Examines whether output verbosity (total response length) correlates with correctness
+at the individual response level, within each inference method.
+"""
+
+import json
+import os
+import math
+from pathlib import Path
+from typing import Dict, List, Tuple
+import pandas as pd
+import numpy as np
+from scipy import stats
+import warnings
+warnings.filterwarnings('ignore')
+
+try:
+    import tiktoken
+    TOKENIZER = tiktoken.get_encoding("cl100k_base")  # GPT-4 tokenizer
+    USE_TIKTOKEN = True
+except ImportError:
+    print("Warning: tiktoken not installed. Using word-based approximation.")
+    USE_TIKTOKEN = False
+
+
+def count_tokens(text: str) -> int:
+    """
+    Count tokens in text using tiktoken or word-based approximation.
+    
+    Args:
+        text: Input text string
+        
+    Returns:
+        Number of tokens
+    """
+    if not text or not isinstance(text, str):
+        return 0
+    
+    if USE_TIKTOKEN:
+        try:
+            return len(TOKENIZER.encode(text))
+        except Exception as e:
+            print(f"Warning: tokenization error, using word count: {e}")
+            return len(text.split())
+    else:
+        # Approximation: word count * 1.3 (typical token/word ratio)
+        return int(len(text.split()) * 1.3)
+
+
+def load_all_results(base_dir: str) -> pd.DataFrame:
+    """
+    Load all JSON result files and create run-level dataframe.
+    
+    Args:
+        base_dir: Path to directory containing dataset folders
+        
+    Returns:
+        DataFrame with columns: dataset, method, model, is_correct, output_length
+    """
+    all_rows = []
+    base_path = Path(base_dir)
+    
+    # Find all dataset directories
+    dataset_dirs = [d for d in base_path.iterdir() if d.is_dir()]
+    
+    for dataset_dir in dataset_dirs:
+        dataset_name = dataset_dir.name
+        print(f"\nProcessing dataset: {dataset_name}")
+        
+        # Process zero-shot and agentic methods
+        for method in ['zero-shot', 'agentic']:
+            method_dir = dataset_dir / method
+            
+            if not method_dir.exists():
+                print(f"  Warning: {method} directory not found in {dataset_name}")
+                continue
+            
+            # Find all JSON files
+            json_files = list(method_dir.glob("*.json"))
+            print(f"  Found {len(json_files)} JSON files in {method}/")
+            
+            for json_file in json_files:
+                # Extract model name from filename
+                # e.g., "results_internal_dataset_dr_deepseek70br1.json" -> "deepseek70br1"
+                filename = json_file.stem
+                parts = filename.split('_')
+                model_name = parts[-1] if len(parts) > 0 else filename
+                
+                # Load JSON
+                try:
+                    with open(json_file, 'r', encoding='utf-8') as f:
+                        results = json.load(f)
+                except Exception as e:
+                    print(f"    Error loading {json_file.name}: {e}")
+                    continue
+                
+                # Process each entry
+                n_missing = 0
+                for entry in results:
+                    # Extract correctness
+                    is_correct = entry.get('correct', None)
+                    if is_correct is None:
+                        # Try to infer from comparison field
+                        comparison = entry.get('comparison', '')
+                        if comparison and isinstance(comparison, str):
+                            is_correct = 1 if comparison.lower() in ['yes', 'correct'] else 0
+                        else:
+                            continue  # Skip if we can't determine correctness
+                    
+                    # Extract predicted_answer (the full model output)
+                    predicted_answer = entry.get('predicted_answer', '')
+                    
+                    if not predicted_answer:
+                        n_missing += 1
+                        output_length = 0
+                    else:
+                        # Count tokens in the entire predicted_answer
+                        output_length = count_tokens(str(predicted_answer))
+                    
+                    # Add row
+                    all_rows.append({
+                        'dataset': dataset_name,
+                        'method': method,
+                        'model': model_name,
+                        'question_id': entry.get('question_id', None),
+                        'is_correct': int(is_correct),
+                        'output_length': output_length
+                    })
+                
+                if n_missing > 0:
+                    print(f"    {json_file.name}: {n_missing} entries missing predicted_answer")
+    
+    df = pd.DataFrame(all_rows)
+    print(f"\n{'='*60}")
+    print(f"Total responses loaded: {len(df)}")
+    print(f"{'='*60}\n")
+    
+    return df
+
+
+def cliffs_delta(group1: np.ndarray, group2: np.ndarray) -> float:
+    """
+    Calculate Cliff's Delta effect size.
+    
+    Cliff's Delta measures how often values in one group are larger than 
+    values in another group. Range: [-1, 1]
+    - Positive: group1 tends to be larger
+    - Negative: group2 tends to be larger
+    - 0: no difference
+    
+    Effect size interpretation:
+    - |d| < 0.147: negligible
+    - |d| < 0.33: small
+    - |d| < 0.474: medium
+    - |d| >= 0.474: large
+    
+    Args:
+        group1: First group values
+        group2: Second group values
+        
+    Returns:
+        Cliff's delta value
+    """
+    n1, n2 = len(group1), len(group2)
+    if n1 == 0 or n2 == 0:
+        return np.nan
+    
+    # Count how many times group1 > group2 and group1 < group2
+    greater = sum(1 for x1 in group1 for x2 in group2 if x1 > x2)
+    lesser = sum(1 for x1 in group1 for x2 in group2 if x1 < x2)
+    
+    delta = (greater - lesser) / (n1 * n2)
+    return delta
+
+
+def interpret_cliffs_delta(delta: float) -> str:
+    """Interpret Cliff's delta effect size."""
+    abs_delta = abs(delta)
+    if abs_delta < 0.147:
+        return "negligible"
+    elif abs_delta < 0.33:
+        return "small"
+    elif abs_delta < 0.474:
+        return "medium"
+    else:
+        return "large"
+
+
+def analyze_length_correctness(df: pd.DataFrame, dataset: str, method: str) -> Dict:
+    """
+    Analyze association between output length and correctness for one dataset and method.
+    
+    Args:
+        df: Full dataframe
+        dataset: Dataset name
+        method: 'zero-shot' or 'agentic'
+        
+    Returns:
+        Dictionary with statistics
+    """
+    # Filter to dataset and method
+    method_df = df[(df['dataset'] == dataset) & (df['method'] == method)].copy()
+    
+    # Split by correctness
+    correct = method_df[method_df['is_correct'] == 1]['output_length'].values
+    incorrect = method_df[method_df['is_correct'] == 0]['output_length'].values
+    
+    # Check if we have data
+    if len(correct) == 0 or len(incorrect) == 0:
+        return {
+            'dataset': dataset,
+            'method': method,
+            'n_correct': len(correct),
+            'n_incorrect': len(incorrect),
+            'error': 'Insufficient data'
+        }
+    
+    # Descriptive statistics
+    correct_median = np.median(correct)
+    correct_q1 = np.percentile(correct, 25)
+    correct_q3 = np.percentile(correct, 75)
+    correct_iqr = correct_q3 - correct_q1
+    correct_mean = np.mean(correct)
+    correct_std = np.std(correct)
+    
+    incorrect_median = np.median(incorrect)
+    incorrect_q1 = np.percentile(incorrect, 25)
+    incorrect_q3 = np.percentile(incorrect, 75)
+    incorrect_iqr = incorrect_q3 - incorrect_q1
+    incorrect_mean = np.mean(incorrect)
+    incorrect_std = np.std(incorrect)
+    
+    # Mann-Whitney U test
+    statistic, p_value = stats.mannwhitneyu(correct, incorrect, 
+                                            alternative='two-sided')
+    
+    # Cliff's delta
+    delta = cliffs_delta(correct, incorrect)
+    delta_interpretation = interpret_cliffs_delta(delta)
+    
+    return {
+        'dataset': dataset,
+        'method': method,
+        'n_correct': len(correct),
+        'n_incorrect': len(incorrect),
+        'correct_median': correct_median,
+        'correct_iqr': correct_iqr,
+        'correct_q1': correct_q1,
+        'correct_q3': correct_q3,
+        'correct_mean': correct_mean,
+        'correct_std': correct_std,
+        'incorrect_median': incorrect_median,
+        'incorrect_iqr': incorrect_iqr,
+        'incorrect_q1': incorrect_q1,
+        'incorrect_q3': incorrect_q3,
+        'incorrect_mean': incorrect_mean,
+        'incorrect_std': incorrect_std,
+        'mann_whitney_u': statistic,
+        'p_value': p_value,
+        'cliffs_delta': delta,
+        'effect_size': delta_interpretation,
+        'significant': p_value < 0.05
+    }
+
+
+def print_analysis_results(results: List[Dict]):
+    """Print formatted analysis results, grouped by dataset."""
+    
+    # Group results by dataset
+    datasets = sorted(set(r['dataset'] for r in results if 'error' not in r))
+    
+    for dataset in datasets:
+        dataset_results = [r for r in results if r.get('dataset') == dataset]
+        
+        print(f"\n{'='*80}")
+        print(f"Dataset: {dataset.upper()}")
+        print(f"{'='*80}\n")
+        
+        for result in dataset_results:
+            if 'error' in result:
+                print(f"Method: {result['method']}")
+                print(f"  Error: {result['error']}\n")
+                continue
+            
+            print(f"Method: {result['method'].upper()}")
+            print(f"{'-'*80}")
+            print(f"Sample sizes:")
+            print(f"  Correct responses:   n = {result['n_correct']}")
+            print(f"  Incorrect responses: n = {result['n_incorrect']}")
+            print()
+            
+            print(f"Descriptive statistics (token counts):")
+            print(f"  Correct:   Median = {result['correct_median']:.1f}, "
+                  f"IQR = {result['correct_iqr']:.1f} "
+                  f"[Q1={result['correct_q1']:.1f}, Q3={result['correct_q3']:.1f}]")
+            print(f"             Mean = {result['correct_mean']:.1f}, "
+                  f"SD = {result['correct_std']:.1f}")
+            print(f"  Incorrect: Median = {result['incorrect_median']:.1f}, "
+                  f"IQR = {result['incorrect_iqr']:.1f} "
+                  f"[Q1={result['incorrect_q1']:.1f}, Q3={result['incorrect_q3']:.1f}]")
+            print(f"             Mean = {result['incorrect_mean']:.1f}, "
+                  f"SD = {result['incorrect_std']:.1f}")
+            print()
+            
+            print(f"Statistical tests:")
+            print(f"  Mann-Whitney U = {result['mann_whitney_u']:.2f}")
+            print(f"  p-value = {result['p_value']:.6f} "
+                  f"{'***' if result['p_value'] < 0.001 else '**' if result['p_value'] < 0.01 else '*' if result['p_value'] < 0.05 else 'ns'}")
+            print(f"  Cliff's Delta = {result['cliffs_delta']:.3f} ({result['effect_size']})")
+            print()
+            
+            # Interpretation
+            if result['significant']:
+                direction = "longer" if result['correct_median'] > result['incorrect_median'] else "shorter"
+                diff_tokens = abs(result['correct_median'] - result['incorrect_median'])
+                print(f"  → Correct responses have {direction} outputs "
+                      f"(median difference: {diff_tokens:.1f} tokens)")
+                print(f"    Statistical significance: p < 0.05, {result['effect_size']} effect (δ={result['cliffs_delta']:.3f})")
+            else:
+                print(f"  → No significant association between output length and correctness")
+                print(f"    (p = {result['p_value']:.3f}, {result['effect_size']} effect)")
+            print()
+
+
+def convert_numpy_types(obj):
+    """
+    Recursively convert numpy types to Python native types for JSON serialization.
+    
+    Args:
+        obj: Object that may contain numpy types
+        
+    Returns:
+        Object with numpy types converted to Python types
+    """
+    if isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        if np.isnan(obj) or math.isnan(float(obj)):
+            return None
+        elif np.isinf(obj) or math.isinf(float(obj)):
+            return None  # or could use "Infinity" / "-Infinity" strings
+        return float(obj)
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, dict):
+        return {key: convert_numpy_types(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_types(item) for item in obj]
+    elif isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        return None
+    else:
+        return obj
+
+
+def generate_summary_table(all_results: List[Dict]) -> pd.DataFrame:
+    """Generate summary table of all results."""
+    summary_data = []
+    
+    for result in all_results:
+        if 'error' in result:
+            continue
+        
+        summary_data.append({
+            'Dataset': result['dataset'].title(),
+            'Method': result['method'].title(),
+            'N_Correct': result['n_correct'],
+            'N_Incorrect': result['n_incorrect'],
+            'Median_Correct': f"{result['correct_median']:.1f}",
+            'Median_Incorrect': f"{result['incorrect_median']:.1f}",
+            'IQR_Correct': f"{result['correct_iqr']:.1f}",
+            'IQR_Incorrect': f"{result['incorrect_iqr']:.1f}",
+            'Median_Diff': f"{abs(result['correct_median'] - result['incorrect_median']):.1f}",
+            'p_value': f"{result['p_value']:.4f}",
+            'Cliffs_Delta': f"{result['cliffs_delta']:.3f}",
+            'Effect_Size': result['effect_size'],
+            'Significant': 'Yes' if result['significant'] else 'No'
+        })
+    
+    return pd.DataFrame(summary_data)
+
+
+def main(base_dir: str, output_dir: str = None):
+    """
+    Main analysis function.
+    
+    Args:
+        base_dir: Path to directory containing dataset folders
+        output_dir: Optional path to save outputs
+    """
+    print("\n" + "="*80)
+    print("ANALYSIS 4: OUTPUT LENGTH AS CONFIDENCE PROXY")
+    print("="*80)
+    
+    # Step 1: Load data and create run-level table
+    print("\nStep 1: Loading data and creating run-level table...")
+    df = load_all_results(base_dir)
+    
+    if df.empty:
+        print("Error: No data loaded. Please check directory structure.")
+        return
+    
+    # Print data overview
+    print("\nData Overview:")
+    print(f"Total responses: {len(df)}")
+    print(f"Number of datasets: {df['dataset'].nunique()}")
+    print(f"Datasets: {', '.join(sorted(df['dataset'].unique()))}")
+    
+    print(f"\nBy dataset:")
+    print(df.groupby('dataset').size())
+    
+    print(f"\nBy method:")
+    print(df.groupby('method').size())
+    
+    print(f"\nBy dataset and method:")
+    print(df.groupby(['dataset', 'method']).size())
+    
+    print(f"\nBy dataset and correctness:")
+    print(df.groupby(['dataset', 'is_correct']).size())
+    
+    print(f"\nBy dataset, method, and correctness:")
+    print(df.groupby(['dataset', 'method', 'is_correct']).size())
+    
+    # Check missing data
+    print(f"\n\nMissing data assessment:")
+    print(f"Responses with output_length = 0: {(df['output_length'] == 0).sum()} "
+          f"({(df['output_length'] == 0).sum() / len(df) * 100:.1f}%)")
+    
+    # Output length distribution
+    print(f"\n\nOutput length distribution:")
+    print(f"Overall median: {df['output_length'].median():.1f} tokens")
+    print(f"Overall mean: {df['output_length'].mean():.1f} tokens")
+    print(f"Overall range: {df['output_length'].min():.0f} - {df['output_length'].max():.0f} tokens")
+    
+    print(f"\nBy dataset and method:")
+    for dataset in sorted(df['dataset'].unique()):
+        print(f"\n  {dataset}:")
+        for method in ['zero-shot', 'agentic']:
+            method_df = df[(df['dataset'] == dataset) & (df['method'] == method)]
+            if len(method_df) > 0:
+                print(f"    {method.title()}: n={len(method_df)}, "
+                      f"Median = {method_df['output_length'].median():.1f}, "
+                      f"Mean = {method_df['output_length'].mean():.1f}")
+    
+    # Step 2 & 3: Analyze each dataset and method combination
+    print("\n\nStep 2-3: Comparing distributions within each dataset and method...")
+    
+    all_results = []
+    datasets = sorted(df['dataset'].unique())
+    
+    for dataset in datasets:
+        for method in ['zero-shot', 'agentic']:
+            result = analyze_length_correctness(df, dataset, method)
+            all_results.append(result)
+    
+    print_analysis_results(all_results)
+    
+    # Generate summary table
+    print("\n" + "="*80)
+    print("SUMMARY TABLE")
+    print("="*80 + "\n")
+    summary_df = generate_summary_table(all_results)
+    print(summary_df.to_string(index=False))
+    
+    # Step 4: Overall interpretation
+    print("\n\n" + "="*80)
+    print("INTERPRETATION")
+    print("="*80 + "\n")
+    
+    print("This analysis examines whether output verbosity (total response length)")
+    print("is associated with response correctness at the individual response level,")
+    print("analyzed separately for each dataset and inference method.")
+    print()
+    
+    # Group results by dataset
+    datasets = sorted(set(r['dataset'] for r in all_results if 'error' not in r))
+    
+    for dataset in datasets:
+        dataset_results = [r for r in all_results if r.get('dataset') == dataset and 'error' not in r]
+        
+        print(f"\n{dataset.upper()}")
+        print("-" * 40)
+        
+        sig_results = [r for r in dataset_results if r['significant']]
+        nonsig_results = [r for r in dataset_results if not r['significant']]
+        
+        if sig_results:
+            print("Significant associations found:")
+            for r in sig_results:
+                direction = "longer" if r['correct_median'] > r['incorrect_median'] else "shorter"
+                diff = abs(r['correct_median'] - r['incorrect_median'])
+                print(f"  - {r['method'].title()}: Correct responses are {direction} "
+                      f"by {diff:.1f} tokens (Δ={r['cliffs_delta']:.3f}, p={r['p_value']:.4f})")
+        
+        if nonsig_results:
+            print("No significant associations:")
+            for r in nonsig_results:
+                print(f"  - {r['method'].title()}: p={r['p_value']:.4f}, δ={r['cliffs_delta']:.3f}")
+    
+
+    
+    # Save outputs if requested
+    if output_dir:
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+        
+        # Save run-level data
+        df.to_csv(output_path / 'analysis4_run_level_data.csv', index=False)
+        print(f"\n\nRun-level data saved to: {output_path / 'analysis4_run_level_data.csv'}")
+        
+        # Save summary table
+        summary_df.to_csv(output_path / 'analysis4_summary.csv', index=False)
+        print(f"Summary table saved to: {output_path / 'analysis4_summary.csv'}")
+        
+        # Save detailed results as JSON
+        # Convert numpy types to Python types for JSON serialization
+        results_for_json = convert_numpy_types(all_results)
+        with open(output_path / 'analysis4_detailed_results.json', 'w') as f:
+            json.dump(results_for_json, f, indent=2)
+        print(f"Detailed results saved to: {output_path / 'analysis4_detailed_results.json'}")
+    
+    return df, all_results, summary_df
+
+
+if __name__ == "__main__":
+    import sys
+    
+    if len(sys.argv) < 2:
+        print("Usage: python analysis_4_output_length.py <base_dir> [output_dir]")
+        print("\nExample:")
+        print("  python analysis_4_output_length.py ./experiment_results ./analysis_outputs")
+        sys.exit(1)
+    
+    base_directory = sys.argv[1]
+    output_directory = sys.argv[2] if len(sys.argv) > 2 else None
+    
+    if not os.path.exists(base_directory):
+        print(f"Error: Directory not found: {base_directory}")
+        sys.exit(1)
+    
+    df, results, summary = main(base_directory, output_directory)
