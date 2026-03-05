@@ -1,0 +1,509 @@
+"""
+Robustness Analysis
+========================================================
+
+This script analyzes the robustness of model correctness across different 
+inference methods (zero-shot vs. agentic) and multiple models.
+
+Analysis: Robustness of Correctness
+- Groups outputs by (dataset, question_id, method)
+- Computes robustness scores (fraction of models answering correctly)
+- Bins robustness into High/Medium/Low categories
+- Analyzes transitions from zero-shot to agentic
+- Results are computed separately for each dataset
+"""
+
+import json
+import os
+from pathlib import Path
+from typing import Dict, List, Tuple
+import numpy as np
+import pandas as pd
+from scipy import stats
+from collections import defaultdict, Counter
+import warnings
+warnings.filterwarnings('ignore')
+
+
+class RobustnessAnalyzer:
+    """Analyzer for computing robustness metrics across models and methods."""
+    
+    def __init__(self, base_dir: str):
+        """
+        Initialize the analyzer.
+        
+        Parameters:
+        -----------
+        base_dir : str
+            Path to the directory containing dataset folders
+        """
+        self.base_dir = Path(base_dir)
+        self.data = []
+        self.robustness_df = None
+        self.transitions_df = None
+        
+    def load_data(self) -> pd.DataFrame:
+        """
+        Load all JSON files from the directory structure.
+        
+        Returns:
+        --------
+        pd.DataFrame
+            DataFrame containing all experiment results
+        """
+        print("Loading data from JSON files...")
+        all_records = []
+        
+        # Iterate through dataset folders
+        for dataset_folder in self.base_dir.iterdir():
+            if not dataset_folder.is_dir():
+                continue
+                
+            dataset_name = dataset_folder.name
+            print(f"\nProcessing dataset: {dataset_name}")
+            
+            # Iterate through method folders (zero-shot, agentic)
+            for method_folder in dataset_folder.iterdir():
+                if not method_folder.is_dir():
+                    continue
+                    
+                method = method_folder.name
+                print(f"  Loading {method} results...")
+                
+                # Load all JSON files in this method folder
+                json_files = list(method_folder.glob("*.json"))
+                print(f"    Found {len(json_files)} JSON files")
+                
+                for json_file in json_files:
+                    # Extract model name from filename
+                    model_name = json_file.stem.replace("results_", "").replace(f"{dataset_name}_", "")
+                    
+                    try:
+                        with open(json_file, 'r', encoding='utf-8') as f:
+                            results = json.load(f)
+                        
+                        # Process each question result
+                        for result in results:
+                            record = {
+                                'dataset': dataset_name,
+                                'method': method,
+                                'model': model_name,
+                                'question_id': result['question_id'],
+                                'correct': result.get('correct', 0),
+                                'prediction_time': result.get('prediction_time', None),
+                                'predicted_answer': result.get('predicted_answer', ''),
+                            }
+                            
+                            # Add agentic-specific fields if available
+                            if 'Usefulness_of_Context' in result:
+                                record['usefulness_of_context'] = result['Usefulness_of_Context']
+                            if 'deep_research_report' in result:
+                                record['has_deep_research'] = bool(result['deep_research_report'])
+                            
+                            all_records.append(record)
+                    
+                    except Exception as e:
+                        print(f"    Warning: Could not load {json_file.name}: {e}")
+        
+        self.data = pd.DataFrame(all_records)
+        print(f"\nTotal records loaded: {len(self.data)}")
+        print(f"Datasets: {self.data['dataset'].unique()}")
+        print(f"Methods: {self.data['method'].unique()}")
+        print(f"Models: {self.data['model'].nunique()}")
+        print(f"Questions: {self.data['question_id'].nunique()}")
+        
+        return self.data
+    
+    def compute_robustness_scores(self) -> pd.DataFrame:
+        """
+        Compute robustness scores for each (question_id, method, dataset) combination.
+        
+        Robustness score = n_correct / n_total_models
+        
+        Returns:
+        --------
+        pd.DataFrame
+            DataFrame with robustness scores and bins
+        """
+        print("\nComputing robustness scores...")
+        
+        robustness_records = []
+        
+        # Group by dataset, method, and question_id
+        grouped = self.data.groupby(['dataset', 'method', 'question_id'])
+        
+        for (dataset, method, question_id), group in grouped:
+            n_models = len(group)
+            n_correct = group['correct'].sum()
+            robustness_score = n_correct / n_models if n_models > 0 else 0
+            
+            # Assign robustness bin
+            if robustness_score >= 0.8:
+                robustness_bin = 'High'
+            elif robustness_score >= 0.4:
+                robustness_bin = 'Medium'
+            else:
+                robustness_bin = 'Low'
+            
+            robustness_records.append({
+                'dataset': dataset,
+                'method': method,
+                'question_id': question_id,
+                'n_models': n_models,
+                'n_correct': n_correct,
+                'robustness_score': robustness_score,
+                'robustness_bin': robustness_bin
+            })
+        
+        self.robustness_df = pd.DataFrame(robustness_records)
+        
+        print(f"Computed robustness for {len(self.robustness_df)} (dataset, method, question) combinations")
+        print(f"\nRobustness score statistics by dataset:")
+        for dataset in self.robustness_df['dataset'].unique():
+            print(f"\n{dataset}:")
+            dataset_df = self.robustness_df[self.robustness_df['dataset'] == dataset]
+            print(dataset_df.groupby('method')['robustness_score'].describe())
+        
+        return self.robustness_df
+    
+    def analyze_transitions(self) -> pd.DataFrame:
+        """
+        Analyze robustness bin transitions from zero-shot to agentic.
+        
+        Returns:
+        --------
+        pd.DataFrame
+            DataFrame with transition information for each question
+        """
+        print("\nAnalyzing robustness transitions...")
+        
+        transition_records = []
+        
+        # Get unique (dataset, question_id) combinations
+        questions = self.robustness_df[['dataset', 'question_id']].drop_duplicates()
+        
+        for _, row in questions.iterrows():
+            dataset = row['dataset']
+            question_id = row['question_id']
+            
+            # Get zero-shot and agentic data for this question
+            question_data = self.robustness_df[
+                (self.robustness_df['dataset'] == dataset) &
+                (self.robustness_df['question_id'] == question_id)
+            ]
+            
+            zero_shot_data = question_data[question_data['method'] == 'zero-shot']
+            agentic_data = question_data[question_data['method'] == 'agentic']
+            
+            if len(zero_shot_data) == 0 or len(agentic_data) == 0:
+                continue
+            
+            zero_shot_bin = zero_shot_data.iloc[0]['robustness_bin']
+            agentic_bin = agentic_data.iloc[0]['robustness_bin']
+            zero_shot_score = zero_shot_data.iloc[0]['robustness_score']
+            agentic_score = agentic_data.iloc[0]['robustness_score']
+            
+            # Determine transition type
+            bin_order = {'Low': 0, 'Medium': 1, 'High': 2}
+            zero_order = bin_order[zero_shot_bin]
+            agentic_order = bin_order[agentic_bin]
+            
+            if agentic_order > zero_order:
+                transition_type = 'Improved'
+            elif agentic_order < zero_order:
+                transition_type = 'Decreased'
+            else:
+                transition_type = 'No Change'
+            
+            transition_records.append({
+                'dataset': dataset,
+                'question_id': question_id,
+                'zero_shot_bin': zero_shot_bin,
+                'agentic_bin': agentic_bin,
+                'zero_shot_score': zero_shot_score,
+                'agentic_score': agentic_score,
+                'delta_robustness': agentic_score - zero_shot_score,
+                'transition_type': transition_type,
+                'transition': f"{zero_shot_bin} → {agentic_bin}"
+            })
+        
+        self.transitions_df = pd.DataFrame(transition_records)
+        
+        print(f"Analyzed {len(self.transitions_df)} questions across all datasets")
+        print(f"\nTransition type distribution by dataset:")
+        for dataset in self.transitions_df['dataset'].unique():
+            print(f"\n{dataset}:")
+            dataset_df = self.transitions_df[self.transitions_df['dataset'] == dataset]
+            print(dataset_df['transition_type'].value_counts())
+        
+        return self.transitions_df
+    
+    def statistical_test(self) -> Dict:
+        """
+        Perform Wilcoxon signed-rank test on robustness scores for each dataset.
+        
+        Returns:
+        --------
+        Dict
+            Dictionary containing test results per dataset
+        """
+        print("\nPerforming Wilcoxon signed-rank tests...")
+        
+        all_results = {}
+        
+        for dataset in self.transitions_df['dataset'].unique():
+            print(f"\n{dataset}:")
+            dataset_df = self.transitions_df[self.transitions_df['dataset'] == dataset]
+            
+            zero_shot_scores = dataset_df['zero_shot_score'].values
+            agentic_scores = dataset_df['agentic_score'].values
+            
+            # Wilcoxon signed-rank test
+            statistic, p_value = stats.wilcoxon(zero_shot_scores, agentic_scores, 
+                                               alternative='two-sided')
+            
+            # Effect size (r = Z / sqrt(N))
+            n = len(zero_shot_scores)
+            z_score = stats.norm.ppf(1 - p_value / 2)
+            effect_size = z_score / np.sqrt(n)
+            
+            # Mean difference
+            mean_diff = np.mean(agentic_scores - zero_shot_scores)
+            
+            results = {
+                'dataset': dataset,
+                'statistic': statistic,
+                'p_value': p_value,
+                'effect_size': effect_size,
+                'mean_difference': mean_diff,
+                'n_questions': n
+            }
+            
+            all_results[dataset] = results
+            
+            print(f"  Wilcoxon test statistic: {statistic:.2f}")
+            print(f"  p-value: {p_value:.4f}")
+            print(f"  Effect size (r): {effect_size:.4f}")
+            print(f"  Mean Δrobustness: {mean_diff:.4f}")
+        
+        return all_results
+    
+    def create_summary_table(self, stat_results: Dict) -> Dict[str, pd.DataFrame]:
+        """
+        Create Table 3: Robustness summary and transitions for each dataset.
+        
+        Parameters:
+        -----------
+        stat_results : Dict
+            Results from statistical test per dataset
+            
+        Returns:
+        --------
+        Dict[str, pd.DataFrame]
+            Dictionary mapping dataset names to summary tables
+        """
+        print("\nCreating summary tables...")
+        
+        all_summaries = {}
+        
+        for dataset in self.robustness_df['dataset'].unique():
+            print(f"  Creating summary for {dataset}...")
+            
+            # Filter data for this dataset
+            dataset_robustness = self.robustness_df[self.robustness_df['dataset'] == dataset]
+            dataset_transitions = self.transitions_df[self.transitions_df['dataset'] == dataset]
+            
+            # Calculate proportions for each bin and method
+            bin_props = dataset_robustness.groupby(['method', 'robustness_bin']).size()
+            total_per_method = dataset_robustness.groupby('method').size()
+            
+            # Zero-shot proportions
+            zs_high = bin_props.get(('zero-shot', 'High'), 0) / total_per_method.get('zero-shot', 1) * 100
+            zs_medium = bin_props.get(('zero-shot', 'Medium'), 0) / total_per_method.get('zero-shot', 1) * 100
+            zs_low = bin_props.get(('zero-shot', 'Low'), 0) / total_per_method.get('zero-shot', 1) * 100
+            
+            # Agentic proportions
+            ag_high = bin_props.get(('agentic', 'High'), 0) / total_per_method.get('agentic', 1) * 100
+            ag_medium = bin_props.get(('agentic', 'Medium'), 0) / total_per_method.get('agentic', 1) * 100
+            ag_low = bin_props.get(('agentic', 'Low'), 0) / total_per_method.get('agentic', 1) * 100
+            
+            # Transition proportions
+            n_total = len(dataset_transitions)
+            if n_total > 0:
+                transition_counts = dataset_transitions['transition_type'].value_counts()
+                pct_improved = transition_counts.get('Improved', 0) / n_total * 100
+                pct_decreased = transition_counts.get('Decreased', 0) / n_total * 100
+                pct_unchanged = transition_counts.get('No Change', 0) / n_total * 100
+            else:
+                pct_improved = pct_decreased = pct_unchanged = 0
+            
+            # Get statistical results for this dataset
+            dataset_stats = stat_results.get(dataset, {})
+            
+            summary_data = {
+                'Metric': [
+                    '% High robustness (zero-shot)',
+                    '% High robustness (agentic)',
+                    '% Medium robustness (zero-shot)',
+                    '% Medium robustness (agentic)',
+                    '% Low robustness (zero-shot)',
+                    '% Low robustness (agentic)',
+                    '% robustness improved',
+                    '% robustness decreased',
+                    '% robustness unchanged',
+                    'Mean Δrobustness',
+                    'Wilcoxon p-value',
+                    'Effect size (r)',
+                    'N questions'
+                ],
+                'Value': [
+                    f"{zs_high:.2f}%",
+                    f"{ag_high:.2f}%",
+                    f"{zs_medium:.2f}%",
+                    f"{ag_medium:.2f}%",
+                    f"{zs_low:.2f}%",
+                    f"{ag_low:.2f}%",
+                    f"{pct_improved:.2f}%",
+                    f"{pct_decreased:.2f}%",
+                    f"{pct_unchanged:.2f}%",
+                    f"{dataset_stats.get('mean_difference', 0):.4f}",
+                    f"{dataset_stats.get('p_value', 0):.8f}",
+                    f"{dataset_stats.get('effect_size', 0):.4f}",
+                    f"{dataset_stats.get('n_questions', 0)}"
+                ]
+            }
+            
+            summary_df = pd.DataFrame(summary_data)
+            all_summaries[dataset] = summary_df
+        
+        return all_summaries
+    
+
+    
+    def save_results(self, output_dir: str = 'output'):
+        """
+        Save all analysis results to files.
+        
+        Parameters:
+        -----------
+        output_dir : str
+            Directory to save results
+        """
+        print("\nSaving analysis results...")
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # # Save robustness scores
+        # self.robustness_df.to_csv(f"{output_dir}/robustness_scores.csv", index=False)
+        # print(f"Saved: {output_dir}/robustness_scores.csv")
+        
+        # # Save transitions
+        # self.transitions_df.to_csv(f"{output_dir}/robustness_transitions.csv", index=False)
+        # print(f"Saved: {output_dir}/robustness_transitions.csv")
+        
+        # Save robustness scores - separate file per dataset
+        for dataset in self.robustness_df['dataset'].unique():
+            dataset_df = self.robustness_df[self.robustness_df['dataset'] == dataset]
+            safe_dataset_name = dataset.replace(' ', '_').replace('/', '_')
+            dataset_df.to_csv(f"{output_dir}/robustness_scores_{safe_dataset_name}.csv", index=False)
+        
+        # Save transitions - separate file per dataset
+        for dataset in self.transitions_df['dataset'].unique():
+            dataset_df = self.transitions_df[self.transitions_df['dataset'] == dataset]
+            safe_dataset_name = dataset.replace(' ', '_').replace('/', '_')
+            dataset_df.to_csv(f"{output_dir}/robustness_transitions_{safe_dataset_name}.csv", index=False)
+            
+            # Save raw data
+        self.data.to_csv(f"{output_dir}/raw_data.csv", index=False)
+        print(f"Saved: {output_dir}/raw_data.csv")
+    
+    def run_complete_analysis(self, output_dir: str = 'output'):
+        """
+        Run the complete robustness analysis pipeline.
+        
+        Parameters:
+        -----------
+        output_dir : str
+            Directory to save all outputs
+        """
+        print("="*70)
+        print("ROBUSTNESS ANALYSIS - COMPLETE PIPELINE")
+        print("="*70)
+        
+        # Step 1: Load data
+        self.load_data()
+        
+        # Step 2: Compute robustness scores
+        self.compute_robustness_scores()
+        
+        # Step 3: Analyze transitions
+        self.analyze_transitions()
+        
+        # Step 4: Statistical tests (per dataset)
+        stat_results = self.statistical_test()
+        
+        # Step 5: Create summary tables (per dataset)
+        summary_tables = self.create_summary_table(stat_results)
+        
+        # Save summary tables
+        os.makedirs(output_dir, exist_ok=True)
+        
+        for dataset, summary_table in summary_tables.items():
+            safe_dataset_name = dataset.replace(' ', '_').replace('/', '_')
+            summary_table.to_csv(f"{output_dir}/table_3_summary_{safe_dataset_name}.csv", index=False)
+            summary_table.to_excel(f"{output_dir}/table_3_summary_{safe_dataset_name}.xlsx", index=False)
+            print(f"\nTable 3 for {dataset} saved: {output_dir}/table_3_summary_{safe_dataset_name}.csv")
+            
+            # Display summary table
+            print("\n" + "="*70)
+            print(f"TABLE 3: ROBUSTNESS SUMMARY AND TRANSITIONS - {dataset}")
+            print("="*70)
+            print(summary_table.to_string(index=False))
+        
+        # Step 6: Generate all plots (per dataset)
+        self.plot_robustness_distributions(output_dir)
+        self.plot_delta_robustness(output_dir)
+        self.plot_sankey(output_dir)
+        
+        # Step 7: Save all results
+        self.save_results(output_dir)
+        
+        print("\n" + "="*70)
+        print("ANALYSIS COMPLETE!")
+        print("="*70)
+        print(f"All results saved to: {output_dir}/")
+        print(f"\nGenerated {len(summary_tables)} dataset-specific result sets")
+        
+        return summary_tables
+
+
+def main():
+    """Main execution function."""
+    # Set the base directory containing your dataset folders
+    # Modify this path to match your directory structure
+    BASE_DIR = "results" 
+
+    
+    print("Robustness Analysis")
+    print("=" * 70)
+    print(f"Base directory: {BASE_DIR}")
+    print()
+    
+    # Check if directory exists
+    if not os.path.exists(BASE_DIR):
+        print(f"ERROR: Directory not found: {BASE_DIR}")
+        print("Please update BASE_DIR in the script to point to your data directory.")
+        return
+    
+    # Initialize analyzer
+    analyzer = RobustnessAnalyzer(BASE_DIR)
+    
+    # Run complete analysis
+    summary = analyzer.run_complete_analysis(output_dir='robustness_output')
+    
+    print("\nAnalysis complete! Check the 'robustness_output' directory for:")
+    print("  - Table 3: table_3_summary.csv and .xlsx")
+    print("  - Data files: robustness_scores.csv, robustness_transitions.csv")
+
+
+if __name__ == "__main__":
+    main()
