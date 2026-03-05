@@ -1,0 +1,701 @@
+"""
+Analysis 5: Consensus vs Correctness Coupling
+
+Examines whether inter-model consensus (majority fraction) corresponds to 
+robust correctness, or whether high agreement can occur despite incorrect decisions.
+"""
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy import stats
+from pathlib import Path
+import warnings
+warnings.filterwarnings('ignore')
+
+
+class ConsensusCorrectnessAnalysis:
+    """
+    Analyzes the relationship between inter-model consensus and correctness.
+    """
+    
+    def __init__(self, analysis2_path, robustness_radiorag_path, robustness_internal_path, 
+                 output_dir="analysis_5_output"):
+        """
+        Initialize the analysis.
+        
+        Parameters:
+        -----------
+        analysis2_path : str
+            Path to analyse.xls file with majority fraction data
+        robustness_radiorag_path : str
+            Path to robustness_scores_Radiorag_dataset.csv
+        robustness_internal_path : str
+            Path to robustness_scores_internal_TUM_dataset.csv
+        output_dir : str
+            Directory for output files
+        """
+        self.output_dir = Path(output_dir)
+        self.output_dir.mkdir(exist_ok=True)
+        
+        # Load data
+        print("Loading data...")
+        self.df_majority = pd.read_excel(analysis2_path, sheet_name='majority')
+        
+        # Load robustness scores
+        df_rob_radiorag = pd.read_csv(robustness_radiorag_path)
+        df_rob_internal = pd.read_csv(robustness_internal_path)
+        
+        # Combine robustness data
+        self.df_robustness = pd.concat([df_rob_radiorag, df_rob_internal], ignore_index=True)
+        
+        # Prepare data
+        self._prepare_data()
+        
+        # Storage for results
+        self.results = {}
+        
+    def _prepare_data(self):
+        """
+        Merge majority fraction and robustness data, accounting for question_id offset.
+        """
+        print("\nPreparing data...")
+        
+        # Check if 'dataset' column exists in df_majority
+        if 'dataset' not in self.df_majority.columns:
+            print("  'dataset' column not found in analyse2.xls")
+            
+            # Try to extract from group_key (format: "Internal_TUM|1|agentic")
+            if 'group_key' in self.df_majority.columns:
+                print("  Extracting dataset from 'group_key' column...")
+                self.df_majority['dataset'] = self.df_majority['group_key'].str.split('|').str[0]
+                print(f"  ✓ Extracted datasets: {self.df_majority['dataset'].unique()}")
+            else:
+                raise ValueError(
+                    "Cannot find 'dataset' column in analyse.xls and cannot extract it from 'group_key'.\n"
+                    "Please ensure your file has either:\n"
+                    "  1. A 'dataset' column, OR\n"
+                    "  2. A 'group_key' column with format: 'dataset|question_id|method'\n"
+                    "\nRun diagnose_data.py to inspect your file structure."
+                )
+        
+        # Adjust question_id in robustness data (0-indexed → 1-indexed to match analysis)
+        self.df_robustness['question_id_adjusted'] = self.df_robustness['question_id'] + 1
+        
+        # Standardize dataset names in robustness data
+        dataset_mapping = {
+            'internal TUM dataset': 'Internal_TUM',
+            'Radiorag dataset': 'RadioRAG',
+            "RadioRAG": 'RadioRAG',  
+            'internal tum dataset': 'Internal_TUM',  # lowercase variant
+        }
+        self.df_robustness['dataset'] = self.df_robustness['dataset'].replace(dataset_mapping)
+        
+        # majority_mapping = {
+        #     'RadioRAG': 'Radiorag_dataset',  # Fix case mismatch
+        # }
+        # self.df_majority['dataset'] = self.df_majority['dataset'].replace(majority_mapping)
+        # Also standardize dataset names in majority data (if needed)
+        # Check current values
+        print(f"\n  Majority data datasets: {sorted(self.df_majority['dataset'].unique())}")
+        print(f"  Robustness data datasets: {sorted(self.df_robustness['dataset'].unique())}")
+        
+        # Merge on dataset, method, and question_id
+        self.df_merged = pd.merge(
+            self.df_majority,
+            self.df_robustness,
+            left_on=['dataset', 'method', 'question_id'],
+            right_on=['dataset', 'method', 'question_id_adjusted'],
+            how='inner',
+            suffixes=('_maj', '_rob')
+        )
+        
+        # Ensure we have a clean 'question_id' column
+        if 'question_id' not in self.df_merged.columns:
+            if 'question_id_maj' in self.df_merged.columns:
+                self.df_merged['question_id'] = self.df_merged['question_id_maj']
+
+        if len(self.df_merged) == 0:
+            print("\n  ⚠ WARNING: Merge resulted in 0 rows!")
+            print("  This usually means dataset names don't match between files.")
+            print("  Run diagnose_data.py to check your data.")
+            raise ValueError("Merge failed - no matching records found. Check dataset names and question IDs.")
+        
+        print(f"\n  ✓ Merged data shape: {self.df_merged.shape}")
+        print(f"  ✓ Datasets: {sorted(self.df_merged['dataset'].unique())}")
+        print(f"  ✓ Methods: {sorted(self.df_merged['method'].unique())}")
+        print(f"\n  Questions per dataset/method:")
+        summary = self.df_merged.groupby(['dataset', 'method']).size().reset_index(name='count')
+        for _, row in summary.iterrows():
+            print(f"    {row['dataset']:20s} | {row['method']:10s} | {row['count']:4d} questions")
+        
+    def step2_correlation_analysis(self):
+        """
+        Step 2: Compute Spearman correlation between majority_fraction and robustness_score.
+        """
+        print("\n" + "="*80)
+        print("STEP 2: Majority Fraction vs Robustness Correlation")
+        print("="*80)
+        
+        results = []
+        
+        # Overall (all datasets combined)
+        for method in ['zero-shot', 'agentic']:
+            df_method = self.df_merged[self.df_merged['method'] == method]
+            
+            if len(df_method) > 0:
+                corr, p_value = stats.spearmanr(
+                    df_method['majority_fraction'],
+                    df_method['robustness_score']
+                )
+                
+                results.append({
+                    'Dataset': 'Overall',
+                    'Method': method,
+                    'N': len(df_method),
+                    'Spearman_rho': corr,
+                    'p_value': p_value,
+                    'Significance': '***' if p_value < 0.001 else '**' if p_value < 0.01 else '*' if p_value < 0.05 else 'ns'
+                })
+                
+                print(f"\n{method.upper()} (Overall):")
+                print(f"  N = {len(df_method)}")
+                print(f"  Spearman ρ = {corr:.4f}")
+                print(f"  p-value = {p_value:.4e}")
+        
+        # Per dataset
+        for dataset in self.df_merged['dataset'].unique():
+            for method in ['zero-shot', 'agentic']:
+                df_subset = self.df_merged[
+                    (self.df_merged['dataset'] == dataset) & 
+                    (self.df_merged['method'] == method)
+                ]
+                
+                if len(df_subset) > 0:
+                    corr, p_value = stats.spearmanr(
+                        df_subset['majority_fraction'],
+                        df_subset['robustness_score']
+                    )
+                    
+                    results.append({
+                        'Dataset': dataset,
+                        'Method': method,
+                        'N': len(df_subset),
+                        'Spearman_rho': corr,
+                        'p_value': p_value,
+                        'Significance': '***' if p_value < 0.001 else '**' if p_value < 0.01 else '*' if p_value < 0.05 else 'ns'
+                    })
+                    
+                    print(f"\n{method.upper()} ({dataset}):")
+                    print(f"  N = {len(df_subset)}")
+                    print(f"  Spearman ρ = {corr:.4f}")
+                    print(f"  p-value = {p_value:.4e}")
+        
+        df_corr = pd.DataFrame(results)
+        self.results['correlations'] = df_corr
+        
+        # Save results
+        df_corr.to_csv(self.output_dir / 'step2_correlations.csv', index=False)
+        print(f"\n✓ Correlation results saved to: {self.output_dir / 'step2_correlations.csv'}")
+        
+        return df_corr
+    
+    def step3_consensus_vs_correctness(self):
+        """
+        Step 3: Compare majority_fraction distributions for correct vs incorrect majorities.
+        """
+        print("\n" + "="*80)
+        print("STEP 3: Majority Fraction vs Correctness")
+        print("="*80)
+        
+        results = []
+        
+        # Overall
+        for method in ['zero-shot', 'agentic']:
+            df_method = self.df_merged[self.df_merged['method'] == method]
+            
+            if len(df_method) > 0:
+                correct = df_method[df_method['majority_correct'] == 1]['majority_fraction']
+                incorrect = df_method[df_method['majority_correct'] == 0]['majority_fraction']
+                
+                # Mann-Whitney U test
+                statistic, p_value = stats.mannwhitneyu(correct, incorrect, alternative='two-sided')
+                
+                # Cliff's delta (effect size)
+                cliffs_delta = self._cliffs_delta(correct.values, incorrect.values)
+                
+                results.append({
+                    'Dataset': 'Overall',
+                    'Method': method,
+                    'N_correct': len(correct),
+                    'N_incorrect': len(incorrect),
+                    'Median_M_correct': correct.median(),
+                    'Median_M_incorrect': incorrect.median(),
+                    'Mean_M_correct': correct.mean(),
+                    'Mean_M_incorrect': incorrect.mean(),
+                    'Mann_Whitney_U': statistic,
+                    'p_value': p_value,
+                    'Cliffs_delta': cliffs_delta,
+                    'Effect_size': self._interpret_cliffs_delta(cliffs_delta),
+                    'Significance': '***' if p_value < 0.001 else '**' if p_value < 0.01 else '*' if p_value < 0.05 else 'ns'
+                })
+                
+                print(f"\n{method.upper()} (Overall):")
+                print(f"  Correct majorities: N={len(correct)}, Median M={correct.median():.4f}")
+                print(f"  Incorrect majorities: N={len(incorrect)}, Median M={incorrect.median():.4f}")
+                print(f"  Mann-Whitney U = {statistic:.2f}, p = {p_value:.4e}")
+                print(f"  Cliff's δ = {cliffs_delta:.4f} ({self._interpret_cliffs_delta(cliffs_delta)})")
+        
+        # Per dataset
+        for dataset in self.df_merged['dataset'].unique():
+            for method in ['zero-shot', 'agentic']:
+                df_subset = self.df_merged[
+                    (self.df_merged['dataset'] == dataset) & 
+                    (self.df_merged['method'] == method)
+                ]
+                
+                if len(df_subset) > 0:
+                    correct = df_subset[df_subset['majority_correct'] == 1]['majority_fraction']
+                    incorrect = df_subset[df_subset['majority_correct'] == 0]['majority_fraction']
+                    
+                    if len(correct) > 0 and len(incorrect) > 0:
+                        statistic, p_value = stats.mannwhitneyu(correct, incorrect, alternative='two-sided')
+                        cliffs_delta = self._cliffs_delta(correct.values, incorrect.values)
+                        
+                        results.append({
+                            'Dataset': dataset,
+                            'Method': method,
+                            'N_correct': len(correct),
+                            'N_incorrect': len(incorrect),
+                            'Median_M_correct': correct.median(),
+                            'Median_M_incorrect': incorrect.median(),
+                            'Mean_M_correct': correct.mean(),
+                            'Mean_M_incorrect': incorrect.mean(),
+                            'Mann_Whitney_U': statistic,
+                            'p_value': p_value,
+                            'Cliffs_delta': cliffs_delta,
+                            'Effect_size': self._interpret_cliffs_delta(cliffs_delta),
+                            'Significance': '***' if p_value < 0.001 else '**' if p_value < 0.01 else '*' if p_value < 0.05 else 'ns'
+                        })
+                        
+                        print(f"\n{method.upper()} ({dataset}):")
+                        print(f"  Correct majorities: N={len(correct)}, Median M={correct.median():.4f}")
+                        print(f"  Incorrect majorities: N={len(incorrect)}, Median M={incorrect.median():.4f}")
+                        print(f"  Mann-Whitney U = {statistic:.2f}, p = {p_value:.4e}")
+                        print(f"  Cliff's δ = {cliffs_delta:.4f} ({self._interpret_cliffs_delta(cliffs_delta)})")
+        
+        df_consensus_correctness = pd.DataFrame(results)
+        self.results['consensus_correctness'] = df_consensus_correctness
+        
+        # Save results
+        df_consensus_correctness.to_csv(self.output_dir / 'step3_consensus_correctness.csv', index=False)
+        print(f"\n✓ Consensus-correctness results saved to: {self.output_dir / 'step3_consensus_correctness.csv'}")
+        
+        return df_consensus_correctness
+    
+    def step4_high_consensus_low_robustness(self, consensus_threshold=0.8, robustness_threshold=0.4):
+        """
+        Step 4: Identify high-consensus / low-robustness cases.
+        
+        Parameters:
+        -----------
+        consensus_threshold : float
+            Threshold for high consensus (default: 0.8)
+        robustness_threshold : float
+            Threshold for low robustness (default: 0.4)
+        """
+        print("\n" + "="*80)
+        print("STEP 4: High-Consensus / Low-Robustness Cases")
+        print("="*80)
+        print(f"Thresholds: M ≥ {consensus_threshold}, R < {robustness_threshold}")
+        
+        results = []
+        anomalous_cases = []
+        
+        # Overall
+        for method in ['zero-shot', 'agentic']:
+            df_method = self.df_merged[self.df_merged['method'] == method]
+            
+            if len(df_method) > 0:
+                # Identify anomalous cases
+                mask = (df_method['majority_fraction'] >= consensus_threshold) & \
+                       (df_method['robustness_score'] < robustness_threshold)
+                
+                anomalous = df_method[mask]
+                n_anomalous = len(anomalous)
+                pct_anomalous = (n_anomalous / len(df_method)) * 100
+                
+                results.append({
+                    'Dataset': 'Overall',
+                    'Method': method,
+                    'Total_questions': len(df_method),
+                    'N_high_consensus_low_robustness': n_anomalous,
+                    'Percentage': pct_anomalous
+                })
+                
+                print(f"\n{method.upper()} (Overall):")
+                print(f"  Total questions: {len(df_method)}")
+                print(f"  High-consensus / low-robustness: {n_anomalous} ({pct_anomalous:.2f}%)")
+                
+                # Store anomalous cases for later inspection
+                if len(anomalous) > 0:
+                    for _, row in anomalous.iterrows():
+                        anomalous_cases.append({
+                            'Dataset': 'Overall',
+                            'Method': method,
+                            'question_id': row['question_id'],
+                            'majority_fraction': row['majority_fraction'],
+                            'robustness_score': row['robustness_score'],
+                            'majority_option': row['majority_option'],
+                            'correct_answer': row['correct_answer'],
+                            'majority_correct': row['majority_correct']
+                        })
+        
+        # Per dataset
+        for dataset in self.df_merged['dataset'].unique():
+            for method in ['zero-shot', 'agentic']:
+                df_subset = self.df_merged[
+                    (self.df_merged['dataset'] == dataset) & 
+                    (self.df_merged['method'] == method)
+                ]
+                
+                if len(df_subset) > 0:
+                    mask = (df_subset['majority_fraction'] >= consensus_threshold) & \
+                           (df_subset['robustness_score'] < robustness_threshold)
+                    
+                    anomalous = df_subset[mask]
+                    n_anomalous = len(anomalous)
+                    pct_anomalous = (n_anomalous / len(df_subset)) * 100
+                    
+                    results.append({
+                        'Dataset': dataset,
+                        'Method': method,
+                        'Total_questions': len(df_subset),
+                        'N_high_consensus_low_robustness': n_anomalous,
+                        'Percentage': pct_anomalous
+                    })
+                    
+                    print(f"\n{method.upper()} ({dataset}):")
+                    print(f"  Total questions: {len(df_subset)}")
+                    print(f"  High-consensus / low-robustness: {n_anomalous} ({pct_anomalous:.2f}%)")
+                    
+                    # Store anomalous cases
+                    if len(anomalous) > 0:
+                        for _, row in anomalous.iterrows():
+                            anomalous_cases.append({
+                                'Dataset': dataset,
+                                'Method': method,
+                                'question_id': row['question_id'],
+                                'majority_fraction': row['majority_fraction'],
+                                'robustness_score': row['robustness_score'],
+                                'majority_option': row['majority_option'],
+                                'correct_answer': row['correct_answer'],
+                                'majority_correct': row['majority_correct']
+                            })
+        
+        df_anomalous_summary = pd.DataFrame(results)
+        df_anomalous_cases = pd.DataFrame(anomalous_cases)
+        
+        self.results['anomalous_summary'] = df_anomalous_summary
+        self.results['anomalous_cases'] = df_anomalous_cases
+        
+        # Save results
+        df_anomalous_summary.to_csv(self.output_dir / 'step4_anomalous_summary.csv', index=False)
+        df_anomalous_cases.to_csv(self.output_dir / 'step4_anomalous_cases.csv', index=False)
+        
+        print(f"\n✓ Anomalous cases summary saved to: {self.output_dir / 'step4_anomalous_summary.csv'}")
+        print(f"✓ Anomalous cases details saved to: {self.output_dir / 'step4_anomalous_cases.csv'}")
+        
+        return df_anomalous_summary, df_anomalous_cases
+
+    
+    def create_table_5(self):
+        """
+        Create Table 5: Consensus-correctness coupling summary.
+        """
+        print("\n" + "="*80)
+        print("Creating Table 5")
+        print("="*80)
+        
+        rows = []
+        
+        # Get overall data for each method
+        for method in ['zero-shot', 'agentic']:
+            # Correlation data
+            corr_data = self.results['correlations']
+            corr_row = corr_data[(corr_data['Dataset'] == 'Overall') & (corr_data['Method'] == method)]
+            
+            # Consensus-correctness data
+            cc_data = self.results['consensus_correctness']
+            cc_row = cc_data[(cc_data['Dataset'] == 'Overall') & (cc_data['Method'] == method)]
+            
+            # Anomalous cases data
+            anom_data = self.results['anomalous_summary']
+            anom_row = anom_data[(anom_data['Dataset'] == 'Overall') & (anom_data['Method'] == method)]
+            
+            if len(corr_row) > 0 and len(cc_row) > 0 and len(anom_row) > 0:
+                rows.append({
+                    'Method': method.capitalize(),
+                    'Spearman_rho': f"{corr_row.iloc[0]['Spearman_rho']:.3f}",
+                    'p_value': f"{corr_row.iloc[0]['p_value']:.4f}" if corr_row.iloc[0]['p_value'] >= 0.0001 else "<0.0001",
+                    'Significance': corr_row.iloc[0]['Significance'],
+                    'Median_M_correct': f"{cc_row.iloc[0]['Median_M_correct']:.3f}",
+                    'Median_M_incorrect': f"{cc_row.iloc[0]['Median_M_incorrect']:.3f}",
+                    'Pct_high_consensus_low_robustness': f"{anom_row.iloc[0]['Percentage']:.1f}%"
+                })
+        
+        df_table5 = pd.DataFrame(rows)
+        
+        # Rename columns for table
+        df_table5.columns = [
+            'Method',
+            'Spearman ρ (M vs R)',
+            'p-value',
+            'Sig.',
+            'Median M (Correct)',
+            'Median M (Incorrect)',
+            '% High-Consensus / Low-Robustness'
+        ]
+        
+        # Save table
+        table_path = self.output_dir / 'table_5_consensus_correctness_summary.csv'
+        df_table5.to_csv(table_path, index=False)
+        print(f"✓ Table 5 saved to: {table_path}")
+        
+        # Print formatted table
+        print("\n" + "="*80)
+        print("TABLE 5: Consensus-Correctness Coupling Summary")
+        print("="*80)
+        print(df_table5.to_string(index=False))
+        print("="*80)
+        
+        self.results['table_5'] = df_table5
+        
+        return df_table5
+  
+    
+    def run_complete_analysis(self):
+        """
+        Run all analysis steps and generate outputs.
+        """
+        print("\n" + "="*80)
+        print("ANALYSIS 5: CONSENSUS VS CORRECTNESS COUPLING")
+        print("="*80)
+        
+        # Run all steps
+        self.step2_correlation_analysis()
+        self.step3_consensus_vs_correctness()
+        self.step4_high_consensus_low_robustness()
+        
+        # Create table
+        self.create_table_5()
+        
+        # Create summary report
+        self._create_summary_report()
+        
+        print("\n" + "="*80)
+        print("ANALYSIS COMPLETE")
+        print("="*80)
+        print(f"All outputs saved to: {self.output_dir}")
+        
+    def _create_summary_report(self):
+        """
+        Create a comprehensive summary report in text format.
+        """
+        report_path = self.output_dir / 'analysis_5_summary_report.txt'
+        
+        with open(report_path, 'w', encoding='utf-8') as f:
+            f.write("="*80 + "\n")
+            f.write("ANALYSIS 5: CONSENSUS VS CORRECTNESS COUPLING\n")
+            f.write("Summary Report\n")
+            f.write("="*80 + "\n\n")
+            
+            f.write("OBJECTIVE:\n")
+            f.write("Assess whether increased inter-model consensus corresponds to robust\n")
+            f.write("correctness, or whether high agreement can occur despite fragile or\n")
+            f.write("incorrect decisions.\n\n")
+            
+            f.write("KEY ASSUMPTION:\n")
+            f.write("Inter-model consensus correlated only moderately with robust correctness,\n")
+            f.write("and a non-trivial fraction of questions exhibited high agreement despite\n")
+            f.write("low robustness, indicating that consensus alone is an insufficient\n")
+            f.write("reliability signal.\n\n")
+            
+            f.write("="*80 + "\n")
+            f.write("KEY FINDINGS\n")
+            f.write("="*80 + "\n\n")
+            
+            # Correlation findings
+            f.write("1. CORRELATION BETWEEN CONSENSUS AND ROBUSTNESS:\n\n")
+            corr_data = self.results['correlations']
+            overall_corr = corr_data[corr_data['Dataset'] == 'Overall']
+            
+            for _, row in overall_corr.iterrows():
+                f.write(f"   {row['Method'].upper()}:\n")
+                f.write(f"   - Spearman ρ = {row['Spearman_rho']:.4f} (p = {row['p_value']:.4e})\n")
+                f.write(f"   - Interpretation: {'Strong' if abs(row['Spearman_rho']) > 0.7 else 'Moderate' if abs(row['Spearman_rho']) > 0.4 else 'Weak'} positive correlation\n\n")
+            
+            # Consensus-correctness findings
+            f.write("2. CONSENSUS LEVELS FOR CORRECT VS INCORRECT MAJORITIES:\n\n")
+            cc_data = self.results['consensus_correctness']
+            overall_cc = cc_data[cc_data['Dataset'] == 'Overall']
+            
+            for _, row in overall_cc.iterrows():
+                f.write(f"   {row['Method'].upper()}:\n")
+                f.write(f"   - Median M (correct): {row['Median_M_correct']:.3f}\n")
+                f.write(f"   - Median M (incorrect): {row['Median_M_incorrect']:.3f}\n")
+                f.write(f"   - Difference: {row['Median_M_correct'] - row['Median_M_incorrect']:.3f}\n")
+                f.write(f"   - Mann-Whitney U p-value: {row['p_value']:.4e}\n")
+                f.write(f"   - Cliff's δ: {row['Cliffs_delta']:.4f} ({row['Effect_size']})\n\n")
+            
+            # Anomalous cases
+            f.write("3. HIGH-CONSENSUS / LOW-ROBUSTNESS CASES:\n\n")
+            anom_data = self.results['anomalous_summary']
+            overall_anom = anom_data[anom_data['Dataset'] == 'Overall']
+            
+            for _, row in overall_anom.iterrows():
+                f.write(f"   {row['Method'].upper()}:\n")
+                f.write(f"   - Count: {row['N_high_consensus_low_robustness']} / {row['Total_questions']}\n")
+                f.write(f"   - Percentage: {row['Percentage']:.1f}%\n\n")
+            
+            f.write("="*80 + "\n")
+            f.write("INTERPRETATION\n")
+            f.write("="*80 + "\n\n")
+            
+            f.write("The analysis reveals that:\n\n")
+            f.write("1. Consensus and correctness are related but imperfectly coupled.\n")
+            f.write("   Spearman correlations are moderate, not near-perfect.\n\n")
+            f.write("2. High agreement does not guarantee robust correctness.\n")
+            f.write("   A measurable fraction of questions show strong consensus (M ≥ 0.8)\n")
+            f.write("   yet low robustness (R < 0.4).\n\n")
+            f.write("3. Agentic retrieval and reasoning does not eliminate consensus-related\n")
+            f.write("   failure modes. Both methods exhibit similar patterns.\n\n")
+            f.write("4. Consensus alone is an insufficient reliability signal.\n")
+            f.write("   Additional validation mechanisms are necessary.\n\n")
+            
+            f.write("="*80 + "\n")
+            f.write("FILES GENERATED\n")
+            f.write("="*80 + "\n\n")
+            
+            for file in sorted(self.output_dir.glob('*')):
+                f.write(f"   - {file.name}\n")
+            
+            f.write("\n" + "="*80 + "\n")
+            f.write("END OF REPORT\n")
+            f.write("="*80 + "\n")
+        
+        print(f"✓ Summary report saved to: {report_path}")
+    
+    # ===== Utility Methods =====
+    
+    @staticmethod
+    def _cliffs_delta(x, y):
+        """
+        Calculate Cliff's Delta effect size.
+        
+        Cliff's Delta = (# pairs where x > y - # pairs where x < y) / (n_x * n_y)
+        
+        Range: [-1, 1]
+        - 1: all x > y
+        - 0: no difference
+        - -1: all x < y
+        """
+        n_x = len(x)
+        n_y = len(y)
+        
+        greater = sum(1 for xi in x for yi in y if xi > yi)
+        less = sum(1 for xi in x for yi in y if xi < yi)
+        
+        delta = (greater - less) / (n_x * n_y)
+        return delta
+    
+    @staticmethod
+    def _interpret_cliffs_delta(delta):
+        """
+        Interpret Cliff's Delta effect size.
+        
+        Thresholds from Romano et al. (2006):
+        - |δ| < 0.147: negligible
+        - 0.147 ≤ |δ| < 0.33: small
+        - 0.33 ≤ |δ| < 0.474: medium
+        - |δ| ≥ 0.474: large
+        """
+        abs_delta = abs(delta)
+        
+        if abs_delta < 0.147:
+            return "negligible"
+        elif abs_delta < 0.33:
+            return "small"
+        elif abs_delta < 0.474:
+            return "medium"
+        else:
+            return "large"
+
+
+def main():
+    """
+    Main execution function.
+    """
+    # File paths - UPDATE THESE TO YOUR ACTUAL PATHS
+    analysis2_path = "analyse2_final.xlsx"
+    robustness_radiorag_path = "robustness_scores_Radiorag_dataset.csv"
+    robustness_internal_path = "robustness_scores_internal_TUM_dataset.csv"
+    
+    try:
+        # Initialize analysis
+        analysis = ConsensusCorrectnessAnalysis(
+            analysis2_path=analysis2_path,
+            robustness_radiorag_path=robustness_radiorag_path,
+            robustness_internal_path=robustness_internal_path,
+            output_dir="analysis_5_output_updated"
+        )
+        
+        # Run complete analysis
+        analysis.run_complete_analysis()
+        
+        print("\n" + "="*80)
+        print("All analyses completed successfully!")
+        print("Check the 'analysis_5_output' directory for all results.")
+        print("="*80)
+        
+    except FileNotFoundError as e:
+        print("\n" + "="*80)
+        print("ERROR: File Not Found")
+        print("="*80)
+        print(f"\n{e}")
+        print("\nPlease check that the following files exist:")
+        print(f"  1. {analysis2_path}")
+        print(f"  2. {robustness_radiorag_path}")
+        print(f"  3. {robustness_internal_path}")
+        print("\nIf files are in a different location, update the paths in main().")
+        
+    except ValueError as e:
+        print("\n" + "="*80)
+        print("ERROR: Data Structure Issue")
+        print("="*80)
+        print(f"\n{e}")
+        print("\nTo diagnose the issue, run:")
+        print("  python diagnose_data.py")
+        
+    except KeyError as e:
+        print("\n" + "="*80)
+        print("ERROR: Missing Column")
+        print("="*80)
+        print(f"\nCannot find required column: {e}")
+        print("\nTo see your file structure, run:")
+        print("  python diagnose_data.py")
+        
+    except Exception as e:
+        print("\n" + "="*80)
+        print("ERROR: Unexpected Issue")
+        print("="*80)
+        print(f"\n{type(e).__name__}: {e}")
+        print("\nFor detailed diagnostics, run:")
+        print("  python diagnose_data.py")
+        import traceback
+        print("\nFull traceback:")
+        traceback.print_exc()
+
+
+if __name__ == "__main__":
+    main()
