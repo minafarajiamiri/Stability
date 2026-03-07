@@ -1,6 +1,6 @@
-# Agentic retrieval-augmented reasoning improves cross-model robustness but preserves coordinated error in radiology question answering
+# Agentic retrieval-augmented reasoning reshapes collective reliability under model variability in radiology question answering
 
-This is the official repository of the paper *Agentic retrieval-augmented reasoning improves cross-model robustness but preserves coordinated error in radiology question answering*.
+This is the official repository of the paper *Agentic retrieval-augmented reasoning reshapes collective reliability under model variability in radiology question answering*.
 
 ## Methodology
 The study evaluates the reliability of Large Language Models (LLMs) under model variability using a standardized agentic retrieval-augmented pipeline. The methodology compares zero-shot inference with a multi-step agentic retrieval condition across a heterogeneous panel of 34 LLMs. Each model was evaluated on 169 expert-curated, publicly available radiology questions. 
