@@ -1,6 +1,6 @@
 # Agentic retrieval-augmented reasoning reshapes collective reliability under model variability in radiology question answering
 
-This is the official repository of the paper *Agentic retrieval-augmented reasoning reshapes collective reliability under model variability in radiology question answering*.
+This is the official repository of the paper [Agentic retrieval-augmented reasoning reshapes collective reliability under model variability in radiology question answering](https://arxiv.org/abs/2603.06271).
 
 ## Methodology
 The study evaluates the reliability of Large Language Models (LLMs) under model variability using a standardized agentic retrieval-augmented pipeline. The methodology compares zero-shot inference with a multi-step agentic retrieval condition across a heterogeneous panel of 34 LLMs. Each model was evaluated on 169 expert-curated, publicly available radiology questions. 
@@ -121,7 +121,9 @@ In case you use this repository, please cite the original paper:
 **BibTex**
 ```bibtex
 @article{stability-2026,
-  title={Agentic retrieval-augmented reasoning improves cross-model robustness but preserves coordinated error in radiology question answering},
-  author={Farajiamiri, Mina and Sopa, Jeta and Afza, Saba and Adams, Lisa and Barajas Ordonez, Felix and Nguyen, Tri-Thien and Lotfinia, Mahshad and Wind, Sebastian and Bressem, Keno and Nebelung, Sven and Truhn, Daniel and Tayebi Arasteh, Soroosh},
-  year={2026}
+  title = {Agentic retrieval-augmented reasoning improves cross-model robustness but preserves coordinated error in radiology question answering},
+  author = {Farajiamiri, Mina and Sopa, Jeta and Afza, Saba and Adams, Lisa and Barajas Ordonez, Felix and Nguyen, Tri-Thien and Lotfinia, Mahshad and Wind, Sebastian and Bressem, Keno and Nebelung, Sven and Truhn, Daniel and Tayebi Arasteh, Soroosh},
+  journal = {arXiv:2603.06271},
+  URL = {https://arxiv.org/abs/2603.06271}
+  year = {2026}
 }
